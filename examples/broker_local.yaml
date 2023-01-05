@@ -20,7 +20,7 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: service-broker-deployment
+  name: service-broker
   namespace: service-broker
   labels:
     app: service-broker
@@ -66,7 +66,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: service-broker-service
+  name: service-broker
   namespace: service-broker
 spec:
   type: ClusterIP
@@ -80,7 +80,7 @@ spec:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: service-broker-role
+  name: service-broker
   namespace: service-broker
   labels:
     app: service-broker
@@ -92,12 +92,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: service-broker-role-binding
+  name: service-broker
   namespace: service-broker
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: service-broker-role
+  name: service-broker
 subjects:
 - kind: ServiceAccount
   name: default
