@@ -29,7 +29,7 @@ kubectl apply --kubeconfig="$PWD/examples/service-provider" -f crds/servicebroke
 kubectl wait --kubeconfig="$PWD/examples/service-provider" --for=condition=available deployment/service-broker -n service-broker --timeout=60s
 
 # apply the cluster configuration
-kubectl apply -f examples/configurations/couchbase-server/broker.yaml --kubeconfig="$PWD/examples/service-provider"
+kubectl apply -f examples/configurations/couchbase-server/broker.yaml -n service-broker --kubeconfig="$PWD/examples/service-provider"
 
 # port forward the service broker
 kubectl port-forward --kubeconfig="$PWD/examples/service-provider" deployment/service-broker -n service-broker 8090:8443

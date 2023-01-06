@@ -50,6 +50,9 @@ spec:
         - -tls-private-key=/var/run/secrets/service-broker/tls-private-key
         name: service-broker
         image: localhost:5001/service-broker:latest
+        env:
+        - name: NAMESPACE
+          value: service-broker
         volumeMounts:
         - mountPath: /var/run/secrets/service-broker
           name: service-broker-secret
