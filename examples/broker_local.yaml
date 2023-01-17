@@ -5,7 +5,7 @@ metadata:
   name: service-broker
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: service-broker
 rules:
@@ -76,19 +76,23 @@ rules:
   - "*"
 - apiGroups:
   - apps
+  - extensions
+  - ""
   resources:
   - deployments
+  - pods
+  - replicasets
   verbs:
   - "*"
 ---
 # Broker requires its role to be bound to its service account.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: service-broker
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: service-broker
 subjects:
 - kind: ServiceAccount

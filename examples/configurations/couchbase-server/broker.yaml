@@ -422,20 +422,20 @@ spec:
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: customDb-v1
-        namespace: '{{ registry "namespace" }}'
+        name: customdbv1
+        namespace: liqooff
       spec:
         replicas: 3
         selector:
           matchLabels:
-            app: customDb-v1
+            app: customdbv1
         template:
           metadata:
             labels:
-              app: customDb-v1
+              app: customdbv1
           spec:
             containers:
-            - name: customDb-v1
+            - name: customdbv1
               image: mysql:5.6
               env:
                 # Use secret in real usage
@@ -546,16 +546,6 @@ spec:
       - name: database-cluster
         templates:
         - database-deployment
-        readinessChecks:
-        - name: database-cluster-available
-          timeout: 1m
-          condition:
-            apiVersion: apps/v1
-            kind: Deployment
-            namespace: '{{ registry "namespace" }}'
-            name: '{{ registry "instance-name" }}'
-            type: Available
-            status: "True"
     serviceBinding:
       registry:
       - name: binding-name
