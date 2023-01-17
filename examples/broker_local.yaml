@@ -1,15 +1,104 @@
+# Broker runs under a service account to inherit roles.
 apiVersion: v1
-kind: Namespace
+kind: ServiceAccount
 metadata:
   name: service-broker
-  labels:
-    name: service-broker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: service-broker
+rules:
+- apiGroups:
+  - servicebroker.couchbase.com
+  resources:
+  - servicebrokerconfigs
+  verbs:
+  - list
+  - watch
+  - update
+- apiGroups:
+  - couchbase.com
+  resources:
+  - couchbaseautoscalers
+  - couchbaseautoscalers/status
+  - couchbaseclusters
+  - couchbasebuckets
+  - couchbaseephemeralbuckets
+  - couchbasememcachedbuckets
+  - couchbasereplications
+  - couchbaseusers
+  - couchbasegroups
+  - couchbaseroles
+  - couchbaserolebindings
+  - couchbasebackups
+  - couchbasebackuprestores
+  verbs:
+  - "*"
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - events
+  - secrets
+  - nodes
+  - pods
+  - pods/status
+  - services
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - configmaps
+  - deployment
+  verbs:
+  - "*"
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - cronjobs
+  verbs:
+  - "*"
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - "*"
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  - rolebindings
+  - clusterroles
+  - clusterrolebindings
+  verbs:
+  - "*"
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - "*"
+---
+# Broker requires its role to be bound to its service account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-broker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: service-broker
+subjects:
+- kind: ServiceAccount
+  name: service-broker
+  namespace: default
 ---
 apiVersion: v1
 kind: Secret
 metadata:
   name: service-broker-secret
-  namespace: service-broker
 data:
   username: dXNlcm5hbWU=
   password: cGFzc3dvcmQ=
@@ -21,7 +110,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: service-broker
-  namespace: service-broker
   labels:
     app: service-broker
 spec:
@@ -52,25 +140,23 @@ spec:
         image: localhost:5001/service-broker:latest
         env:
         - name: NAMESPACE
-          value: service-broker
+          value: default
         volumeMounts:
         - mountPath: /var/run/secrets/service-broker
           name: service-broker-secret
           readOnly: true
         ports:
         - containerPort: 8443
-      # serviceAccountName: service-broker-account
+      serviceAccountName: service-broker
       volumes:
       - name: service-broker-secret
         secret:
-          secretName: service-broker-secret
-        
+          secretName: service-broker-secret        
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: service-broker
-  namespace: service-broker
 spec:
   type: ClusterIP
   selector:
@@ -79,29 +165,3 @@ spec:
     - protocol: TCP
       port: 8443
       targetPort: 8443
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: service-broker
-  namespace: service-broker
-  labels:
-    app: service-broker
-rules:
-- apiGroups: ["servicebroker.couchbase.com", ""] # "" indicates the core API group
-  resources: ["servicebrokerconfigs", "pods", "services", "secrets", "configmaps", "deployments", "statefulsets", "persistentvolumeclaims", "roles", "rolebindings", "clusterroles", "clusterrolebindings", "serviceaccounts", "customresourcedefinitions"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: service-broker
-  namespace: service-broker
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: service-broker
-subjects:
-- kind: ServiceAccount
-  name: default
-  namespace: service-broker

@@ -3,82 +3,7 @@
 # The Broker requires permission to create/delete any resource defined
 # as a template, as well as any permission granted with templated roles
 # or cluster roles.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: couchbase-service-broker
-rules:
-- apiGroups:
-  - servicebroker.couchbase.com
-  resources:
-  - servicebrokerconfigs
-  verbs:
-  - list
-  - watch
-  - update
-- apiGroups:
-  - couchbase.com
-  resources:
-  - couchbaseautoscalers
-  - couchbaseautoscalers/status
-  - couchbaseclusters
-  - couchbasebuckets
-  - couchbaseephemeralbuckets
-  - couchbasememcachedbuckets
-  - couchbasereplications
-  - couchbaseusers
-  - couchbasegroups
-  - couchbaseroles
-  - couchbaserolebindings
-  - couchbasebackups
-  - couchbasebackuprestores
-  verbs:
-  - "*"
-- apiGroups:
-  - ""
-  resources:
-  - configmaps
-  - events
-  - secrets
-  - nodes
-  - pods
-  - pods/status
-  - services
-  - persistentvolumeclaims
-  - secrets
-  - serviceaccounts
-  - configmaps
-  verbs:
-  - "*"
-- apiGroups:
-  - batch
-  resources:
-  - jobs
-  - cronjobs
-  verbs:
-  - "*"
-- apiGroups:
-  - policy
-  resources:
-  - poddisruptionbudgets
-  verbs:
-  - "*"
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
-  - roles
-  - rolebindings
-  - clusterroles
-  - clusterrolebindings
-  verbs:
-  - "*"
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - "*"
----
+
 # The main Broker configuration.  This defines what classes and plans a client
 # can see, along with what can be configured.  Templates are bound to a plan and
 # are rendered and created when a service instance/binding is created, then cleaned
@@ -135,6 +60,47 @@ spec:
                     type: number
                     minimum: 3
                     maximum: 9
+    - id: customDb-v1-001
+      name: custom-database-v1
+      description: Custom Database for academic purposes
+      tags:
+      - database
+      bindable: true
+      planUpdatable: false
+      plans:
+      - id: 8b0d4bb1-7b5a-4866-9f9b-2b7d92e7a8cd
+        name: plan-customDb-v1-Liqo
+        description: customDb on Liqo
+        schemas:
+          serviceInstance:
+            create:
+              parameters:
+                $schema: "http://json-schema.org/draft-04/schema#"
+                type: object
+                required:
+                  - password
+                  - namespace
+                properties:
+                  password:
+                    description: "Administrator password"
+                    type: string
+                  namespace:
+                    description: "Offloaded namespace name"
+                    type: string
+            update:
+              parameters:
+                $schema: "http://json-schema.org/draft-04/schema#"
+                type: object
+                required:
+                  - password
+                  - namespace
+                properties:
+                  password:
+                    description: "Administrator password"
+                    type: string
+                  namespace:
+                    description: "Offloaded namespace name"
+                    type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst
   # metadata or parameters.  Parameters allow defaults to be specified if
@@ -148,6 +114,7 @@ spec:
       kind: ServiceAccount
       metadata:
         name: couchbase-operator
+        #namespace: liqooff
   - name: couchbase-operator-role
     singleton: true
     template:
@@ -156,6 +123,7 @@ spec:
       metadata:
         creationTimestamp: null
         name: couchbase-operator
+        #namespace: liqooff
       rules:
       - apiGroups:
         - batch
@@ -274,6 +242,7 @@ spec:
       kind: RoleBinding
       metadata:
         name: couchbase-operator
+        #namespace: liqooff
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
@@ -289,6 +258,7 @@ spec:
       kind: Deployment
       metadata:
         name: couchbase-operator
+        #namespace: liqooff
       spec:
         replicas: 1
         selector:
@@ -332,6 +302,7 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-admin" (registry "instance-name") }}'
+        #namespace: liqooff
       stringData:
         username: Administrator
         password: '{{ parameter "/password" }}'
@@ -341,6 +312,7 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-operator-tls" (registry "instance-name") }}'
+        namespace: liqooff
       stringData:
         ca.crt: '{{ registry "ca-cert" }}'
   - name: couchbase-server-tls-secret
@@ -349,6 +321,7 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-server-tls" (registry "instance-name") }}'
+        #namespace: liqooff
       stringData:
         pkey.key: '{{ registry "server-key" }}'
         chain.pem: '{{ registry "server-cert" }}'
@@ -443,6 +416,54 @@ spec:
       username: '{{ registry "username" }}'
       password: '{{ registry "password" }}'
       bucket: '{{ registry "binding-name" }}'
+  - name: database-deployment
+    singleton: true
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: customDb-v1
+        namespace: '{{ registry "namespace" }}'
+      spec:
+        replicas: 3
+        selector:
+          matchLabels:
+            app: customDb-v1
+        template:
+          metadata:
+            labels:
+              app: customDb-v1
+          spec:
+            containers:
+            - name: customDb-v1
+              image: mysql:5.6
+              env:
+                # Use secret in real usage
+              - name: MYSQL_ROOT_PASSWORD
+                value: '{{ parameter "/password" }}'
+              ports:
+              - containerPort: 3306
+                name: mysql
+  - name: database-service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: customDb-v1
+      spec:
+        ports:
+        - port: 3306
+        selector:
+          app: customDb-v1
+        clusterIP: None
+  - name: my-secret
+    template: # (1)
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: '{{ registry "instance-id" }}' # (2)
+      stringData:
+        mySecretName: TopSecret!
   # Bindings bind templates to service plans.  These allow the specification of
   # exactly what templates are created when a plan is instantiated or bound to.
   bindings:
@@ -512,3 +533,36 @@ spec:
       - couchbase-role-binding
       - couchbase-user-secret
       - couchbase-user
+  - name: plan-customDb-v1-Liqo
+    service: custom-database-v1
+    plan: plan-customDb-v1-Liqo
+    serviceInstance:
+      registry:
+      - name: instance-name
+        value: '{{ printf "%s-%s" (generatePetName 2) (generatePassword 8 "abcdefghijklmnopqrstuvwxyz0123456789") }}'
+      - name: dashboard-url
+        value: '{{ printf "https://%s.%s:18091" (registry "instance-name") (registry "namespace") }}'
+      steps:
+      - name: database-cluster
+        templates:
+        - database-deployment
+        readinessChecks:
+        - name: database-cluster-available
+          timeout: 1m
+          condition:
+            apiVersion: apps/v1
+            kind: Deployment
+            namespace: '{{ registry "namespace" }}'
+            name: '{{ registry "instance-name" }}'
+            type: Available
+            status: "True"
+    serviceBinding:
+      registry:
+      - name: binding-name
+        value: '{{ printf "binding-%s" (registry "binding-id") }}'
+      - name: password
+        value: '{{ generatePassword 32 nil }}'
+      - name: credentials
+        value: '{{ snippet "credentials" }}'
+      templates:
+      - database-service

@@ -56,6 +56,7 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Client supports async operation")
 
 		// Parse the creation request.
 		request := &api.CreateServiceInstanceRequest{}
@@ -63,6 +64,7 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Request parsed")
 
 		// Check parameters.
 		instanceID := params.ByName("instance_id")
@@ -93,8 +95,10 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Registry entry created")
 
 		if entry.Exists() {
+			glog.Info("Instance already exists")
 			// If the instance already exists either return 200 if provisioned or
 			// a 202 if it is still provisioning, or a 409 if provisioned or
 			// provisioning with different attributes.
@@ -225,21 +229,25 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			return
 		}
 
+		glog.Info("Creating new instance")
 		context := &runtime.RawExtension{}
 		if request.Context != nil {
 			context = request.Context
 		}
+		glog.Infof("Context: %v", context)
 
 		parameters := &runtime.RawExtension{}
 		if request.Parameters != nil {
 			parameters = request.Parameters
 		}
+		glog.Infof("Parameters: %v", parameters)
 
 		namespace, err := getNamespace(request.Context, configuration.Namespace)
 		if err != nil {
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Namespace: ", namespace)
 
 		if err := entry.Set(registry.Namespace, namespace); err != nil {
 			jsonError(w, err)
@@ -285,20 +293,25 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Provisioner: ", provisioner)
 
 		if err := provisioner.Prepare(entry); err != nil {
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Prepared")
 
 		if err := operation.Start(entry, operation.TypeProvision); err != nil {
 			jsonError(w, err)
 			return
 		}
+		glog.Info("Started")
 
 		frozenEntry := entry.Clone()
 
 		go provisioner.Run(entry)
+
+		glog.Info("Running")
 
 		operationID, ok, err := frozenEntry.GetString(registry.OperationID)
 		if err != nil {
@@ -310,6 +323,8 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			jsonError(w, fmt.Errorf("%w: service instance missing operation ID", ErrUnexpected))
 			return
 		}
+
+		glog.Info("Operation ID: ", operationID)
 
 		// Return a response to the client.
 		response := &api.CreateServiceInstanceResponse{
