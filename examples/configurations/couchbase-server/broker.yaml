@@ -79,13 +79,9 @@ spec:
                 type: object
                 required:
                   - password
-                  - namespace
                 properties:
                   password:
                     description: "Administrator password"
-                    type: string
-                  namespace:
-                    description: "Offloaded namespace name"
                     type: string
             update:
               parameters:
@@ -93,13 +89,9 @@ spec:
                 type: object
                 required:
                   - password
-                  - namespace
                 properties:
                   password:
                     description: "Administrator password"
-                    type: string
-                  namespace:
-                    description: "Offloaded namespace name"
                     type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst
@@ -114,7 +106,6 @@ spec:
       kind: ServiceAccount
       metadata:
         name: couchbase-operator
-        #namespace: liqooff
   - name: couchbase-operator-role
     singleton: true
     template:
@@ -123,7 +114,6 @@ spec:
       metadata:
         creationTimestamp: null
         name: couchbase-operator
-        #namespace: liqooff
       rules:
       - apiGroups:
         - batch
@@ -242,7 +232,6 @@ spec:
       kind: RoleBinding
       metadata:
         name: couchbase-operator
-        #namespace: liqooff
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
@@ -258,7 +247,6 @@ spec:
       kind: Deployment
       metadata:
         name: couchbase-operator
-        #namespace: liqooff
       spec:
         replicas: 1
         selector:
@@ -302,7 +290,6 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-admin" (registry "instance-name") }}'
-        #namespace: liqooff
       stringData:
         username: Administrator
         password: '{{ parameter "/password" }}'
@@ -312,7 +299,6 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-operator-tls" (registry "instance-name") }}'
-        namespace: liqooff
       stringData:
         ca.crt: '{{ registry "ca-cert" }}'
   - name: couchbase-server-tls-secret
@@ -321,7 +307,6 @@ spec:
       kind: Secret
       metadata:
         name: '{{ printf "%v-server-tls" (registry "instance-name") }}'
-        #namespace: liqooff
       stringData:
         pkey.key: '{{ registry "server-key" }}'
         chain.pem: '{{ registry "server-cert" }}'
@@ -423,7 +408,7 @@ spec:
       kind: Deployment
       metadata:
         name: customdbv1
-        namespace: liqooff
+        namespace: '{{ parameter "/namespace" }}'
       spec:
         replicas: 3
         selector:
@@ -536,6 +521,8 @@ spec:
   - name: plan-customDb-v1-Liqo
     service: custom-database-v1
     plan: plan-customDb-v1-Liqo
+    registryNamespace: liqooff
+    registryScope: InstanceLocal
     serviceInstance:
       registry:
       - name: instance-name

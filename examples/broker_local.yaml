@@ -99,6 +99,37 @@ subjects:
   name: service-broker
   namespace: default
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: service-broker
+  namespace: liqooff
+rules:
+- apiGroups:
+  - apps
+  - extensions
+  - ""
+  resources:
+  - deployments
+  - pods
+  - replicasets
+  verbs:
+  - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: service-broker
+  namespace: liqooff
+subjects:
+  - kind: ServiceAccount
+    name: service-broker
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: service-broker  
+---
 apiVersion: v1
 kind: Secret
 metadata:
