@@ -1,0 +1,163 @@
+# The main Broker configuration.  This defines what classes and plans a client
+# can see, along with what can be configured.  Templates are bound to a plan and
+# are rendered and created when a service instance/binding is created, then cleaned
+# up when deleted.
+apiVersion: servicebroker.couchbase.com/v1alpha1
+kind: ServiceBrokerConfig
+metadata:
+  name: couchbase-service-broker
+spec:
+  # Catalog is simply verbatim what will be exposed on GET /v2/catalog
+  catalog:
+    services:
+    - id: customDb-v1-001
+      name: custom-database-v1
+      description: Custom Database for academic purposes
+      tags:
+      - database
+      bindable: true
+      planUpdatable: false
+      plans:
+      - id: 8b0d4bb1-7b5a-4866-9f9b-2b7d92e7a8cd
+        name: plan-customDb-v1-Liqo
+        description: customDb on Liqo
+        schemas:
+          serviceInstance:
+            create:
+              parameters:
+                $schema: "http://json-schema.org/draft-04/schema#"
+                type: object
+                required:
+                  - user-name
+                properties:
+                  root-password:
+                    description: "Administrator password"
+                    type: string
+                  user-name:
+                    description: "User name"
+                    type: string
+                  user-password:
+                    description: "User password"
+                    type: string
+                  database-name:
+                    description: "Database name"
+                    type: string
+            update:
+              parameters:
+                $schema: "http://json-schema.org/draft-04/schema#"
+                type: object
+                required:
+                  - user-name
+                properties:
+                  root-password:
+                    description: "Administrator password"
+                    type: string
+                  user-name:
+                    description: "User name"
+                    type: string
+                  user-password:
+                    description: "User password"
+                    type: string
+                  database-name:
+                    description: "Database name"
+                    type: string
+  # Templates allow the end user to define anything they want to be created.
+  # The parameters if specified define where the source is, either requesst
+  # metadata or parameters.  Parameters allow defaults to be specified if
+  # the parameter is not defined.  Parameters are applied to the resource one
+  # or many times as required.
+  templates:
+  - name: database-deployment
+    singleton: true
+    template:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: customdbv1
+      spec:
+        replicas: 3
+        selector:
+          matchLabels:
+            app: customdbv1
+        template:
+          metadata:
+            labels:
+              app: customdbv1
+          spec:
+            containers:
+            - name: customdbv1
+              image: mysql:5.6
+              env:
+              - name: MYSQL_ROOT_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: '{{ registry "instance-id" }}'
+                    key: MYSQL_ROOT_PASSWORD
+              - name: MYSQL_USER
+                valueFrom:
+                  secretKeyRef:
+                    name: '{{ registry "instance-id" }}'
+                    key: MYSQL_USER
+              - name: MYSQL_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: '{{ registry "instance-id" }}'
+                    key: MYSQL_PASSWORD
+              - name: MYSQL_DATABASE
+                valueFrom:
+                  secretKeyRef:
+                    name: '{{ registry "instance-id" }}'
+                    key: MYSQL_DATABASE
+              ports:
+              - containerPort: 3306
+                name: mysql
+  - name: database-service
+    template:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: customdb-v1
+      spec:
+        type: ClusterIP
+        ports:
+        - port: 3306
+        selector:
+          app: customdb-v1
+  - name: database-secret
+    template:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: '{{ registry "instance-id" }}'
+      stringData:
+        MYSQL_ROOT_PASSWORD: '{{ parameter "/root-password" | generatePassword 32 }}'
+        MYSQL_USER: '{{ parameter "/user-name" | default "myuser" }}'
+        MYSQL_PASSWORD: '{{ parameter "/user-password" | generatePassword 32 }}'
+        MYSQL_DATABASE: '{{ parameter "/database-name" | default "mydb" }}'
+  # Bindings bind templates to service plans.  These allow the specification of
+  # exactly what templates are created when a plan is instantiated or bound to.
+  bindings:
+  - name: plan-customDb-v1-Liqo
+    service: custom-database-v1
+    plan: plan-customDb-v1-Liqo
+    registryNamespace: liqooff
+    registryScope: InstanceLocal
+    serviceInstance:
+      registry:
+      - name: instance-name
+        value: '{{ printf "%s-%s" (generatePetName 2) (generatePassword 8 "abcdefghijklmnopqrstuvwxyz0123456789") }}'
+      - name: port
+        value: '{{ printf "3306" }}'
+      steps:
+      - name: database-cluster
+        templates:
+        - database-deployment
+        - database-secret
+    serviceBinding:
+      registry:
+      - name: binding-name
+        value: '{{ printf "binding-%s" (registry "binding-id") }}'
+      - name: password
+        value: '{{ generatePassword 32 nil }}'
+      templates:
+      - database-service
