@@ -1,0 +1,47 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-broker
+  labels:
+    app: service-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-broker
+  template:
+    metadata:
+      labels:
+        app: service-broker
+    spec:
+      containers:
+      - args:
+        - -logtostderr
+        - -v
+        - "0"
+        # This may be either 'basic' (for username/password), or token (for bearer token)
+        # If you change this, then you also need to update the authentication type defined
+        # in clusterservicebroker.yaml
+        - -authentication=basic
+        - -token=/var/run/secrets/service-broker/token
+        - -username=/var/run/secrets/service-broker/username
+        - -password=/var/run/secrets/service-broker/password
+        - -tls-certificate=/var/run/secrets/service-broker/tls-certificate
+        - -tls-private-key=/var/run/secrets/service-broker/tls-private-key
+        name: service-broker
+        image: localhost:5001/service-broker:latest
+        env:
+        - name: NAMESPACE
+          value: default
+        volumeMounts:
+        - mountPath: /var/run/secrets/service-broker
+          name: secret-volume
+          readOnly: true
+        ports:
+        - containerPort: 8443
+      serviceAccountName: service-broker
+      volumes:
+      - name: secret-volume
+        secret:
+          secretName: service-broker    

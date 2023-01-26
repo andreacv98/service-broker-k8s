@@ -1,0 +1,95 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: service-broker
+rules:
+- apiGroups:
+  - servicebroker.couchbase.com
+  resources:
+  - servicebrokerconfigs
+  verbs:
+  - list
+  - watch
+  - update
+- apiGroups:
+  - couchbase.com
+  resources:
+  - couchbaseautoscalers
+  - couchbaseautoscalers/status
+  - couchbaseclusters
+  - couchbasebuckets
+  - couchbaseephemeralbuckets
+  - couchbasememcachedbuckets
+  - couchbasereplications
+  - couchbaseusers
+  - couchbasegroups
+  - couchbaseroles
+  - couchbaserolebindings
+  - couchbasebackups
+  - couchbasebackuprestores
+  verbs:
+  - "*"
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - events
+  - secrets
+  - nodes
+  - pods
+  - pods/status
+  - services
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - configmaps
+  - deployment
+  verbs:
+  - "*"
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  - cronjobs
+  verbs:
+  - "*"
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - "*"
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  - rolebindings
+  - clusterroles
+  - clusterrolebindings
+  verbs:
+  - "*"
+- apiGroups:
+  - apps
+  - extensions
+  - ""
+  resources:
+  - deployments
+  - pods
+  - replicasets
+  verbs:
+  - "*"
+---
+# Broker requires its role to be bound to its service account.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: service-broker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: service-broker
+subjects:
+- kind: ServiceAccount
+  name: service-broker
+  namespace: default
