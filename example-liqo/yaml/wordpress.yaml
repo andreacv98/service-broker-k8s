@@ -24,7 +24,7 @@ spec:
           #    mountPath: /var/www
           env:
             - name: WORDPRESS_DB_HOST
-              value: customdb-v1.liqooff.svc.cluster.local
+              value: customdbv1.liqooff
             - name: WORDPRESS_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
