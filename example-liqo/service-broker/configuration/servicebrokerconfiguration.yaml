@@ -116,13 +116,13 @@ spec:
       apiVersion: v1
       kind: Service
       metadata:
-        name: customdb-v1
+        name: customdbv1
       spec:
         type: ClusterIP
         ports:
         - port: 3306
         selector:
-          app: customdb-v1
+          app: customdbv1
   - name: database-secret
     template:
       apiVersion: v1
