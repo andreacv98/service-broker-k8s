@@ -4,8 +4,17 @@ set -o errexit
 # delete liqooff namespace if already exists
 kubectl delete namespace liqooff --kubeconfig="$PWD/service-provider" --ignore-not-found=true
 
+# delete myapp namespace if already exists in customer cluster
+kubectl delete namespace myapp --kubeconfig="$PWD/customer" --ignore-not-found=true
+
 # create liqooff namespace
 kubectl create namespace liqooff --kubeconfig="$PWD/service-provider"
+
+# create myapp namespace in customer cluster
+kubectl create namespace myapp --kubeconfig="$PWD/customer"
+
+# apply wordpress deployment on customer cluster
+kubectl apply --kubeconfig="$PWD/customer" -f yaml/wordpress.yaml -n myapp
 
 # offload liqooff namespace to the second cluster
 liqoctl offload namespace liqooff --namespace-mapping-strategy EnforceSameName --pod-offloading-strategy Remote --kubeconfig="$PWD/service-provider"
