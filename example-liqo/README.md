@@ -39,3 +39,13 @@ To interact with the "service-provider" cluster you can export the KUBECONFIG en
 ```bash
 export KUBECONFIG=$PWD/service-provider
 ```
+
+### 2. Call the OpenService Broker APIs with any HTTP client (e.g. Postman)
+You can call all the different APIs
+#TODO: add instructions to different APIs
+
+### 3. Copy binding secret
+If you need to copy any secret from the "service-provider" cluster (inside Liqo offloaded namespace) to the "customer" cluster, you can use the following command:
+```bash
+kubectl get secret liqov1 --namespace=liqooff -o yaml --kubeconfig="service-provider" | sed 's/namespace: .*/namespace: myapp/' | kubectl apply  --kubeconfig="customer" -f -
+```
