@@ -29,6 +29,8 @@ spec:
                 type: object
                 required:
                   - user-name
+                  - credentials-name
+                  - binding-namespace
                 properties:
                   root-password:
                     description: "Administrator password"
@@ -41,6 +43,12 @@ spec:
                     type: string
                   database-name:
                     description: "Database name"
+                    type: string
+                  credentials-name:
+                    description: "Credentials name"
+                    type: string
+                  binding-namespace:
+                    description: "Namespace where the binding will be created"
                     type: string
             update:
               parameters:
@@ -48,6 +56,8 @@ spec:
                 type: object
                 required:
                   - user-name
+                  - credentials-name
+                  - binding-namespace
                 properties:
                   root-password:
                     description: "Administrator password"
@@ -60,6 +70,31 @@ spec:
                     type: string
                   database-name:
                     description: "Database name"
+                    type: string
+                  credentials-name:
+                    description: "Credentials name"
+                    type: string
+                  binding-namespace:
+                    description: "Namespace where the binding will be created"
+                    type: string
+          serviceBinding:
+            create:
+              parameters:
+                $schema: "http://json-schema.org/draft-04/schema#"
+                type: object
+                required:
+                  - connection-name
+                  - binding-namespace
+                properties:
+                  port:
+                    description: "Port"
+                    type: integer
+                  connection-name:
+                    description: "Connection name"
+                    type: string
+                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                  binding-namespace:
+                    description: "Namespace where the binding will be created"
                     type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst
@@ -73,40 +108,40 @@ spec:
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: customdbv1
+        name: '{{ registry "instance-id" }}'
       spec:
         replicas: 3
         selector:
           matchLabels:
-            app: customdbv1
+            app: '{{ registry "instance-id" }}'
         template:
           metadata:
             labels:
-              app: customdbv1
+              app: '{{ registry "instance-id" }}'
           spec:
             containers:
-            - name: customdbv1
+            - name: '{{ registry "instance-id" }}'
               image: mysql:5.6
               env:
               - name: MYSQL_ROOT_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "instance-id" }}'
+                    name: '{{ registry "credentials-name" }}'
                     key: MYSQL_ROOT_PASSWORD
               - name: MYSQL_USER
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "instance-id" }}'
+                    name: '{{ registry "credentials-name" }}'
                     key: MYSQL_USER
               - name: MYSQL_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "instance-id" }}'
+                    name: '{{ registry "credentials-name" }}'
                     key: MYSQL_PASSWORD
               - name: MYSQL_DATABASE
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "instance-id" }}'
+                    name: '{{ registry "credentials-name" }}'
                     key: MYSQL_DATABASE
               ports:
               - containerPort: 3306
@@ -116,48 +151,70 @@ spec:
       apiVersion: v1
       kind: Service
       metadata:
-        name: customdbv1
+        name: '{{ registry "instance-id" }}'
       spec:
         type: ClusterIP
         ports:
-        - port: 3306
+        - protocol: TCP
+          port: '{{ registry "port" }}'
+          targetPort: 3306
         selector:
-          app: customdbv1
-  - name: database-secret
+          app: '{{ registry "instance-id" }}'
+  - name: database-credentials
     template:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: '{{ registry "instance-id" }}'
+        name: '{{ registry "credentials-name" }}'
+        annotations:
+          synator/sync: 'yes'          
+          synator/include-namespaces: '{{ printf "%s,%s" (registry "namespace") (registry "binding-namespace") }}'
       stringData:
         MYSQL_ROOT_PASSWORD: '{{ parameter "/root-password" | generatePassword 32 }}'
         MYSQL_USER: '{{ parameter "/user-name" | default "myuser" }}'
         MYSQL_PASSWORD: '{{ parameter "/user-password" | generatePassword 32 }}'
         MYSQL_DATABASE: '{{ parameter "/database-name" | default "mydb" }}'
+  - name: database-connection-binding
+    template:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: '{{ registry "connection-name" }}'
+        annotations:
+          synator/sync: 'yes'
+          synator/include-namespaces: '{{ printf "%s,%s" (registry "namespace") (registry "binding-namespace") }}'
+      stringData:
+        MYSQL_HOST: '{{ registry "host" }}'
+        MYSQL_PORT: '{{ printf "%s" (registry "port") }}'
+        MYSQL_HOST_PORT: '{{ printf "%s:%s" (registry "host") (registry "port") }}'
   # Bindings bind templates to service plans.  These allow the specification of
   # exactly what templates are created when a plan is instantiated or bound to.
   bindings:
   - name: plan-customDb-v1-Liqo
     service: custom-database-v1
     plan: plan-customDb-v1-Liqo
-    registryNamespace: liqooff
     registryScope: InstanceLocal
     serviceInstance:
       registry:
-      - name: instance-name
-        value: '{{ printf "%s-%s" (generatePetName 2) (generatePassword 8 "abcdefghijklmnopqrstuvwxyz0123456789") }}'
-      - name: port
-        value: '{{ printf "3306" }}'
+      - name: credentials-name
+        value: '{{ parameter "/credentials-name" }}'
+      - name: binding-namespace
+        value: '{{ parameter "/binding-namespace" }}'
       steps:
       - name: database-cluster
         templates:
         - database-deployment
-        - database-secret
+        - database-credentials
     serviceBinding:
       registry:
-      - name: binding-name
-        value: '{{ printf "binding-%s" (registry "binding-id") }}'
-      - name: password
-        value: '{{ generatePassword 32 nil }}'
+      - name: connection-name
+        value: '{{ parameter "/connection-name" }}'  
+      - name: port
+        value: '{{ parameter "/port" | default 3306 }}'
+      - name: host
+        value: '{{ printf "%s.%s" (registry "instance-id") (registry "namespace") }}'
+      - name: binding-namespace
+        value: '{{ parameter "/binding-namespace" }}'
       templates:
       - database-service
+      - database-connection-binding

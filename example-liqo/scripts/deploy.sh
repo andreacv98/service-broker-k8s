@@ -49,5 +49,8 @@ kubectl wait --kubeconfig="$PWD/example-liqo/service-provider" --for=condition=a
 # apply the cluster configuration
 kubectl apply -f example-liqo/service-broker/configuration/servicebrokerconfiguration.yaml --kubeconfig="$PWD/example-liqo/service-provider"
 
+# create synator to copy secrets inside customer cluster
+kubectl apply -f example-liqo/yaml/synator.yaml --kubeconfig="$PWD/example-liqo/customer"
+
 # port forward the service broker
 kubectl port-forward --kubeconfig="$PWD/example-liqo/service-provider" deployment/service-broker 8090:8443
