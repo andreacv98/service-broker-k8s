@@ -28,69 +28,50 @@ spec:
                 $schema: "http://json-schema.org/draft-04/schema#"
                 type: object
                 required:
-                  - user-name
-                  - credentials-name
-                  - binding-namespace
+                  - secret-binding-name
                 properties:
-                  root-password:
-                    description: "Administrator password"
-                    type: string
-                  user-name:
-                    description: "User name"
-                    type: string
-                  user-password:
-                    description: "User password"
-                    type: string
-                  database-name:
-                    description: "Database name"
-                    type: string
-                  credentials-name:
+                  secret-binding-name:
                     description: "Credentials name"
                     type: string
-                  binding-namespace:
-                    description: "Namespace where the binding will be created"
-                    type: string
+                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
             update:
               parameters:
                 $schema: "http://json-schema.org/draft-04/schema#"
                 type: object
                 required:
-                  - user-name
-                  - credentials-name
-                  - binding-namespace
+                  - secret-binding-name
                 properties:
-                  root-password:
-                    description: "Administrator password"
+                  secret-binding-name:
+                    description: "Secret binding name"
                     type: string
-                  user-name:
-                    description: "User name"
-                    type: string
-                  user-password:
-                    description: "User password"
-                    type: string
-                  database-name:
-                    description: "Database name"
-                    type: string
-                  credentials-name:
-                    description: "Credentials name"
-                    type: string
-                  binding-namespace:
-                    description: "Namespace where the binding will be created"
-                    type: string
+                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
           serviceBinding:
             create:
               parameters:
                 $schema: "http://json-schema.org/draft-04/schema#"
                 type: object
                 required:
-                  - connection-name
+                  - user-name
+                  - secret-binding-name
                   - binding-namespace
                 properties:
+                  root-password:
+                    description: "Administrator password"
+                    type: string
+                  user-name:
+                    description: "User name"
+                    type: string
+                  user-password:
+                    description: "User password"
+                    type: string
+                  database-name:
+                    description: "Database name"
+                    type: string
                   port:
                     description: "Port"
                     type: integer
-                  connection-name:
-                    description: "Connection name"
+                  secret-binding-name:
+                    description: "Secret binding name"
                     type: string
                     pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
                   binding-namespace:
@@ -126,22 +107,22 @@ spec:
               - name: MYSQL_ROOT_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "credentials-name" }}'
+                    name: '{{ registry "secret-binding-name" }}'
                     key: MYSQL_ROOT_PASSWORD
               - name: MYSQL_USER
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "credentials-name" }}'
+                    name: '{{ registry "secret-binding-name" }}'
                     key: MYSQL_USER
               - name: MYSQL_PASSWORD
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "credentials-name" }}'
+                    name: '{{ registry "secret-binding-name" }}'
                     key: MYSQL_PASSWORD
               - name: MYSQL_DATABASE
                 valueFrom:
                   secretKeyRef:
-                    name: '{{ registry "credentials-name" }}'
+                    name: '{{ registry "secret-binding-name" }}'
                     key: MYSQL_DATABASE
               ports:
               - containerPort: 3306
@@ -160,12 +141,12 @@ spec:
           targetPort: 3306
         selector:
           app: '{{ registry "instance-id" }}'
-  - name: database-credentials
+  - name: database-secret-binding
     template:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: '{{ registry "credentials-name" }}'
+        name: '{{ registry "secret-binding-name" }}'
         annotations:
           synator/sync: 'yes'          
           synator/include-namespaces: '{{ printf "%s,%s" (registry "namespace") (registry "binding-namespace") }}'
@@ -174,19 +155,10 @@ spec:
         MYSQL_USER: '{{ parameter "/user-name" | default "myuser" }}'
         MYSQL_PASSWORD: '{{ parameter "/user-password" | generatePassword 32 }}'
         MYSQL_DATABASE: '{{ parameter "/database-name" | default "mydb" }}'
-  - name: database-connection-binding
-    template:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: '{{ registry "connection-name" }}'
-        annotations:
-          synator/sync: 'yes'
-          synator/include-namespaces: '{{ printf "%s,%s" (registry "namespace") (registry "binding-namespace") }}'
-      stringData:
         MYSQL_HOST: '{{ registry "host" }}'
         MYSQL_PORT: '{{ printf "%s" (registry "port") }}'
         MYSQL_HOST_PORT: '{{ printf "%s:%s" (registry "host") (registry "port") }}'
+        
   # Bindings bind templates to service plans.  These allow the specification of
   # exactly what templates are created when a plan is instantiated or bound to.
   bindings:
@@ -196,25 +168,22 @@ spec:
     registryScope: InstanceLocal
     serviceInstance:
       registry:
-      - name: credentials-name
-        value: '{{ parameter "/credentials-name" }}'
-      - name: binding-namespace
-        value: '{{ parameter "/binding-namespace" }}'
+      - name: secret-binding-name
+        value: '{{ parameter "/secret-binding-name" }}'
       steps:
       - name: database-cluster
         templates:
         - database-deployment
-        - database-credentials
     serviceBinding:
       registry:
-      - name: connection-name
-        value: '{{ parameter "/connection-name" }}'  
       - name: port
         value: '{{ parameter "/port" | default 3306 }}'
       - name: host
         value: '{{ printf "%s.%s" (registry "instance-id") (registry "namespace") }}'
       - name: binding-namespace
         value: '{{ parameter "/binding-namespace" }}'
+      - name: secret-binding-name
+        value: '{{ parameter "/secret-binding-name" }}'
       templates:
       - database-service
-      - database-connection-binding
+      - database-secret-binding
