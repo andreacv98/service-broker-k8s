@@ -17,3 +17,19 @@
 
 /example-liqo/customer
 /example-liqo/service-provider
+
+# IDEs
+/.idea
+/.vscode
+/.vscode-server
+/.vscode-server-insiders
+/.vscode-test
+/.vscode-remote
+/.vscode-remote-insiders
+/.vscode-remote-test
+/.vscode-remote-test-insiders
+/.vscode-remote-lock
+/.vscode-remote-lock-insiders
+/.vscode-remote-lock-test
+/.vscode-remote-lock-test-insiders
+/.vscode-remote-lock-test

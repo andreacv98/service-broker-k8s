@@ -12,11 +12,14 @@ require (
 	github.com/go-openapi/spec v0.20.4
 	github.com/go-openapi/strfmt v0.21.2
 	github.com/go-openapi/validate v0.21.0
+	github.com/go-sql-driver/mysql v1.7.0
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/golang/glog v1.0.0
 	github.com/google/uuid v1.1.2
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/lib/pq v1.10.7
 	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/mitchellh/mapstructure v1.4.3 // indirect
 	go.mongodb.org/mongo-driver v1.8.3 // indirect
 	golang.org/x/net v0.0.0-20220225172249-27dd8689420f // indirect

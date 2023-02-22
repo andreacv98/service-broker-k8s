@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"database/sql"
 
 	"github.com/couchbase/service-broker/pkg/apis"
 	"github.com/couchbase/service-broker/pkg/client"
@@ -298,6 +299,26 @@ type ServerConfigurationBasicAuth struct {
 	Password string
 }
 
+type ServerConfigurationAdvancedToken struct {
+	// Database host
+	DbHost string
+
+	// Database port
+	DbPort string
+
+	// Database name
+	DbName string
+
+	// Database user
+	DbUser string
+
+	// Database password
+	DbPassword string
+
+	// Database object
+	Db *sql.DB
+}
+
 // ServerConfiguration is used to propagate server configuration to the server instance
 // and its handlers.
 type ServerConfiguration struct {
@@ -309,6 +330,9 @@ type ServerConfiguration struct {
 
 	// BasicAuth is set when using basic authentication.
 	BasicAuth *ServerConfigurationBasicAuth
+
+	// AdvancedToken is set when using advanced token authentication.
+	AdvancedToken *ServerConfigurationAdvancedToken
 
 	// Certificate is the TLS key/certificate to serve with.
 	Certificate tls.Certificate

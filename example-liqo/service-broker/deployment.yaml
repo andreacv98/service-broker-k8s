@@ -23,7 +23,7 @@ spec:
         # This may be either 'basic' (for username/password), or token (for bearer token)
         # If you change this, then you also need to update the authentication type defined
         # in clusterservicebroker.yaml
-        - -authentication=basic
+        - -authentication=advancedToken
         - -token=/var/run/secrets/service-broker/token
         - -username=/var/run/secrets/service-broker/username
         - -password=/var/run/secrets/service-broker/password
