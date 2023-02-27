@@ -34,6 +34,8 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"k8s.io/client-go/kubernetes/scheme"
+
+	"github.com/golang-jwt/jwt"
 )
 
 // ErrInternalError is returned when something really bad happened.
@@ -100,6 +102,69 @@ func handleBrokerBearerToken(c *ServerConfiguration, w http.ResponseWriter, r *h
 		httpResponse(w, http.StatusUnauthorized)
 		return fmt.Errorf("%w: authorization failed", ErrUnauthorized)
 	}
+
+	return nil
+}
+
+// handleJwtAuth authenticates the request using the JWT token.
+func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) jwt.MapClaims {
+	// Get the token from the header.
+	header, err := getHeaderSingle(r, "Authorization")
+	if err != nil {
+		httpResponse(w, http.StatusUnauthorized)
+	}	
+
+	// Extract the token from the Authorization header
+    parts := strings.Split(header, " ")
+    if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+        // Handle invalid token error
+		httpResponse(w, http.StatusBadRequest)
+    }
+    tokenString := parts[1]
+
+	// Check the token is valid with JWT
+	// Get the key from the configuration
+	key := []byte(c.AdvancedToken.JwtSecret)
+	// Parse the token
+	// The second parameter is a function that will return the key for validating
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Check the signing method
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			// Method of signing is not HMAC
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        }
+		// Return the key that the server owns
+        return key, nil
+    })
+	if err != nil {
+		// Handle error
+		httpResponse(w, http.StatusBadRequest)
+	}
+	
+	// Check if the token is valid
+	if !token.Valid {
+		// Handle invalid token
+		httpResponse(w, http.StatusUnauthorized)
+		glog.Warning("Invalid token")
+	}
+	
+	// Get the claims from the token
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		// Handle invalid claims
+		httpResponse(w, http.StatusBadRequest)
+		glog.Warning("Invalid claims")
+	}
+
+	return claims
+}
+
+// handleAdvancedToken authenticates the request using the advanced token.
+func handleAdvancedToken(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) error {
+	// Get the claims from the JWT token
+	claims := handleJwtAuth(c, w, r)
+
+	glog.Info("User authenticated: ", claims["username"])
 
 	return nil
 }
@@ -173,6 +238,10 @@ func handleRequestHeaders(c *ServerConfiguration, w http.ResponseWriter, r *http
 		}
 	case c.BasicAuth != nil:
 		if err := handleBrokerBasicAuth(c, w, r); err != nil {
+			return err
+		}
+	case c.AdvancedToken != nil:
+		if err := handleAdvancedToken(c, w, r); err != nil {
 			return err
 		}
 	default:
@@ -317,6 +386,9 @@ type ServerConfigurationAdvancedToken struct {
 
 	// Database object
 	Db *sql.DB
+
+	// JWT secret key
+	JwtSecret string
 }
 
 // ServerConfiguration is used to propagate server configuration to the server instance

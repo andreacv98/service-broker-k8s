@@ -95,20 +95,23 @@ func main() {
 	// passwordPath is the location of the file containing the password for authentication.
 	var passwordPath string
 
-	// dbhost is the database host for advanced token authentication.
-	var dbhost string
+	// dbhostPath is the database host for advanced token authentication.
+	var dbhostPath string
 
-	// dbport is the database port for advanced token authentication.
-	var dbport string
+	// dbportPath is the database port for advanced token authentication.
+	var dbportPath string
 
-	// dbuser is the database user for advanced token authentication.
-	var dbuser string
+	// dbuserPath is the database user for advanced token authentication.
+	var dbuserPath string
 
-	// dbpassword is the database password for advanced token authentication.
-	var dbpassword string
+	// dbpasswordPath is the database password for advanced token authentication.
+	var dbpasswordPath string
 
-	// dbname is the database name for advanced token authentication.
-	var dbname string
+	// dbnamePath is the database name for advanced token authentication.
+	var dbnamePath string
+
+	// jwtsecretPath is the location of the file containing the JWT secret for authentication.
+	var jwtsecretPath string
 
 	// tlsCertificatePath is the location of the file containing the TLS server certifcate.
 	var tlsCertificatePath string
@@ -120,11 +123,12 @@ func main() {
 	flag.StringVar(&tokenPath, "token", "/var/run/secrets/service-broker/token", "Bearer token for API authentication")
 	flag.StringVar(&usernamePath, "username", "/var/run/secrets/service-broker/username", "Username for basic authentication")
 	flag.StringVar(&passwordPath, "password", "/var/run/secrets/service-broker/password", "Password for basic authentication")
-	flag.StringVar(&dbhost, "dbhost", "", "Database host for advanced token authentication")
-	flag.StringVar(&dbport, "dbport", "", "Database port for advanced token authentication")
-	flag.StringVar(&dbuser, "dbuser", "", "Database user for advanced token authentication")
-	flag.StringVar(&dbpassword, "dbpassword", "", "Database password for advanced token authentication")
-	flag.StringVar(&dbname, "dbname", "", "Database name for advanced token authentication")
+	flag.StringVar(&dbhostPath, "dbhost", "/var/run/secrets/service-broker/dbhost", "Database host for advanced token authentication")
+	flag.StringVar(&dbportPath, "dbport", "/var/run/secrets/service-broker/dbport", "Database port for advanced token authentication")
+	flag.StringVar(&dbuserPath, "dbuser", "/var/run/secrets/service-broker/dbuser", "Database user for advanced token authentication")
+	flag.StringVar(&dbpasswordPath, "dbpassword", "/var/run/secrets/service-broker/dbpassword", "Database password for advanced token authentication")
+	flag.StringVar(&dbnamePath, "dbname", "/var/run/secrets/service-broker/dbname", "Database name for advanced token authentication")
+	flag.StringVar(&jwtsecretPath, "dbname", "/var/run/secrets/service-broker/jwtsecretPath", "JWT secret key for advanced token authentication")
 	flag.StringVar(&tlsCertificatePath, "tls-certificate", "/var/run/secrets/service-broker/tls-certificate", "Path to the server TLS certificate")
 	flag.StringVar(&tlsPrivateKeyPath, "tls-private-key", "/var/run/secrets/service-broker/tls-private-key", "Path to the server TLS key")
 	flag.StringVar(&config.ConfigurationName, "config", config.ConfigurationNameDefault, "Configuration resource name")
@@ -182,18 +186,65 @@ func main() {
 	case advancedToken:
 		glog.Infof("Advanced token authentication")
 
-		// Read
+		// Read db data from paths
+		dbhost, err := ioutil.ReadFile(dbhostPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
 
+		// Read db port from path
+		dbport, err := ioutil.ReadFile(dbportPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read db user from path
+		dbuser, err := ioutil.ReadFile(dbuserPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read db password from path
+		dbpassword, err := ioutil.ReadFile(dbpasswordPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read db name from path
+		dbname, err := ioutil.ReadFile(dbnamePath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read jwt secret from path
+		jwtsecret, err := ioutil.ReadFile(jwtsecretPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
 
 		stringDbHost := string(dbhost)
 		stringDbPort := string(dbport)
 		stringDbUser := string(dbuser)
 		stringDbPassword := string(dbpassword)
 		stringDbName := string(dbname)
+		stringJwtSecret := string(jwtsecret)
 
 		var db *sql.DB
 
 		// MISSING PARAMETERS
+
+		// Check if JWT secret is empty
+		if stringJwtSecret == "" {
+			glog.Fatal(fmt.Errorf("%w: JWT secret must be set", ErrFatal))
+			os.Exit(errorCode)
+		}
+
 		// Check if host or port are empty but credentials are set
 		if (stringDbHost == "" || stringDbPort == "") && (stringDbUser != "" || stringDbPassword != "" || stringDbName != "") {
 			glog.Fatal(fmt.Errorf("%w: database host and port must be set if credentials are set", ErrFatal))
@@ -237,6 +288,7 @@ func main() {
 			DbPassword: stringDbPassword,
 			DbName:    stringDbName,
 			Db: 	  db,
+			JwtSecret: stringJwtSecret,
 		}
 	}
 
