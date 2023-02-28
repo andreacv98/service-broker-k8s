@@ -15,6 +15,8 @@
 package broker
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	goerrors "errors"
 	"fmt"
 	"net/http"
@@ -26,6 +28,7 @@ import (
 	"github.com/couchbase/service-broker/pkg/operation"
 	"github.com/couchbase/service-broker/pkg/provisioners"
 	"github.com/couchbase/service-broker/pkg/registry"
+	"github.com/golang-jwt/jwt"
 
 	"github.com/golang/glog"
 	"github.com/julienschmidt/httprouter"
@@ -1177,6 +1180,63 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 		deleter.Run(entry)
 
 		response := &api.DeleteServiceBindingResponse{}
+		JSONResponse(w, http.StatusOK, response)
+	}
+}
+
+// handleLogin handles the login request from POST body
+func handleLogin(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		// Parse the login request.
+		request := &api.LoginRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			jsonError(w, err)
+			return
+		}		
+
+		if request.Username == "" || request.Password == "" {
+			jsonError(w, errors.NewParameterError("username or password is empty"))
+			return
+		}
+
+		// encode passsword in SHA-256
+		sha := sha256.New()
+		sha.Write([]byte(request.Password))
+		encodedPassword := hex.EncodeToString(sha.Sum(nil))
+		glog.Info("encodedPassword: ", encodedPassword)
+		
+		// Check with query to database if username and password are correct
+		query := "SELECT * FROM users WHERE username = $1 AND hashedpassword = $2"
+		rows, err := configuration.AdvancedToken.Db.Query(query, request.Username, encodedPassword)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		
+		// Check if there is a result
+		if !rows.Next() {
+			jsonError(w, errors.NewParameterError("username or password is incorrect"))
+			return
+		}
+
+		glog.Info("User exists: ", request.Username)
+
+		// User exists, generate token
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"username": request.Username,
+		})
+		
+		// Sign token with secret
+		tokenString, err := token.SignedString([]byte(configuration.AdvancedToken.JwtSecret))
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Return loginRespone with JSON
+		response := &api.LoginResponse{
+			Token: tokenString,
+		}
 		JSONResponse(w, http.StatusOK, response)
 	}
 }

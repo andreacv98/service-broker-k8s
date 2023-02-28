@@ -219,3 +219,17 @@ type Endpoint struct {
 // DeleteServiceBindingResponse is returned when a binding is deleted.
 type DeleteServiceBindingResponse struct {
 }
+
+// LoginRequest is the request to login to the service broker.
+type LoginRequest struct {
+	// Username is the username to login with.
+	Username string `json:"username"`
+	// Password is the password to login with.
+	Password string `json:"password"`
+}
+
+// LoginResponse is the response to login to the service broker.
+type LoginResponse struct {
+	// Token is the token to use for subsequent requests.
+	Token string `json:"token"`
+}

@@ -15,13 +15,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"database/sql"
 
 	"github.com/couchbase/service-broker/pkg/broker"
 	"github.com/couchbase/service-broker/pkg/client"
@@ -128,7 +129,7 @@ func main() {
 	flag.StringVar(&dbuserPath, "dbuser", "/var/run/secrets/service-broker/dbuser", "Database user for advanced token authentication")
 	flag.StringVar(&dbpasswordPath, "dbpassword", "/var/run/secrets/service-broker/dbpassword", "Database password for advanced token authentication")
 	flag.StringVar(&dbnamePath, "dbname", "/var/run/secrets/service-broker/dbname", "Database name for advanced token authentication")
-	flag.StringVar(&jwtsecretPath, "dbname", "/var/run/secrets/service-broker/jwtsecretPath", "JWT secret key for advanced token authentication")
+	flag.StringVar(&jwtsecretPath, "jwtsecret", "/var/run/secrets/service-broker/jwtsecret", "JWT secret key for advanced token authentication")
 	flag.StringVar(&tlsCertificatePath, "tls-certificate", "/var/run/secrets/service-broker/tls-certificate", "Path to the server TLS certificate")
 	flag.StringVar(&tlsPrivateKeyPath, "tls-private-key", "/var/run/secrets/service-broker/tls-private-key", "Path to the server TLS key")
 	flag.StringVar(&config.ConfigurationName, "config", config.ConfigurationNameDefault, "Configuration resource name")
@@ -290,6 +291,34 @@ func main() {
 			Db: 	  db,
 			JwtSecret: stringJwtSecret,
 		}
+
+		// Create users table if it doesn't exist with primary key auto increment
+		_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, hashedpassword TEXT NOT NULL)")
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+		// Create bought services table with foreign key to users table if it doesn't exist
+		_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// default username
+		defaultUsername := "admin"
+		// default password
+		defaultPassword := "password"
+		// hashed password SHA256 to string
+		hashedPassword := fmt.Sprintf("%x", sha256.Sum256([]byte(defaultPassword)))
+		
+		// Insert default user
+		_, err = db.Exec("INSERT INTO users (username, hashedpassword) VALUES ($1, $2) ON CONFLICT DO NOTHING", defaultUsername, hashedPassword)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
 	}
 
 	cert, err := tls.LoadX509KeyPair(tlsCertificatePath, tlsPrivateKeyPath)
