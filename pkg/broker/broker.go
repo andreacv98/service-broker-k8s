@@ -106,6 +106,20 @@ func handleBrokerBearerToken(c *ServerConfiguration, w http.ResponseWriter, r *h
 	return nil
 }
 
+func extractJwtToken(r *http.Request) (string, error) {
+	header, err := getHeaderSingle(r, "Authorization")
+	if err != nil {
+		return "", err
+	}
+
+	parts := strings.Split(header, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return "", fmt.Errorf("%w: invalid token", ErrRequestMalformed)
+	}
+
+	return parts[1], nil
+}
+
 // handleJwtAuth authenticates the request using the JWT token.
 func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) (jwt.MapClaims, error) {
 	// Get the token from the header.

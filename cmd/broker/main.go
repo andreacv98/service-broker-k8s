@@ -298,8 +298,8 @@ func main() {
 			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
-		// Create bought services table with foreign key to users table if it doesn't exist
-		_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+		// Create bought services and plans table with foreign key to users table if it doesn't exist
+		_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, plan_id TEXT NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
 		if err != nil {
 			glog.Fatal(err)
 			os.Exit(errorCode)

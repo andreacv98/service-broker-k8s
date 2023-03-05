@@ -16,6 +16,7 @@ package broker
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	goerrors "errors"
 	"fmt"
@@ -51,6 +52,58 @@ func handleReadCatalog(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	JSONResponse(w, http.StatusOK, config.Config().Spec.Catalog.Convert())
 }
 
+func authorize(configuration *ServerConfiguration, r *http.Request, serviceID, planID string) error {
+	// Check if the username in the claims matches the service ID request in the bought_services table
+	tokenString, err := extractJwtToken(r)
+	if err != nil {
+		return err
+	}
+	
+	key := []byte(configuration.AdvancedToken.JwtSecret)
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Check the signing method
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			// Method of signing is not HMAC
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        }
+		// Return the key that the server owns
+        return key, err
+    })
+
+	claims := token.Claims.(jwt.MapClaims)
+
+	if err != nil {
+		return fmt.Errorf("unable to parse claims")
+	}
+
+	// Check if service id and plan id required have been bought by the user with username extracted from claims
+	if err := checkBoughtServices(configuration.AdvancedToken.Db, claims["username"].(string), serviceID, planID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func checkBoughtServices(db *sql.DB, username, serviceID, planID string) error {
+	// Get bought services from database
+	rows, err := db.Query("SELECT service_id, plan_id FROM users, bought_services WHERE username = $1 AND users.id = bought_services.user_id", username)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	// Check if service id and plan id required have been bought by the user
+	for rows.Next() {
+		var serviceIDRow, planIDRow string
+		if err := rows.Scan(&serviceIDRow, &planIDRow); err != nil {
+			return err
+		}
+		if serviceIDRow == serviceID && planIDRow == planID {
+			return nil
+		}
+	}
+	return fmt.Errorf("service id and plan id not bought by user")
+}
+
 // handleCreateServiceInstance creates a service instance of a plan.
 func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
@@ -68,6 +121,12 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 			return
 		}
 		glog.Info("Request parsed")
+
+		// Check if user is authorized to create the instance.
+		if err := authorize(configuration, r, request.ServiceID, request.PlanID); err != nil {
+			jsonError(w, err)
+			return
+		}
 
 		// Check parameters.
 		instanceID := params.ByName("instance_id")
