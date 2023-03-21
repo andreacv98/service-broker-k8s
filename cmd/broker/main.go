@@ -87,8 +87,8 @@ func main() {
 	// authenticationType is the type of authentication to use.
 	authentication := basic
 
-	// tokenPath is the location of the file containing the bearer token for authentication.
-	var tokenPath string
+	// tokenServerPath is the location of the file containing the bearer token for authentication.
+	var tokenServerPath string
 
 	// usernamePath is the location of the file containing the username for authentication.
 	var usernamePath string
@@ -121,7 +121,7 @@ func main() {
 	var tlsPrivateKeyPath string
 
 	flag.Var(&authentication, "authentication", "Authentication type to use, either 'basic' or 'token'")
-	flag.StringVar(&tokenPath, "token", "/var/run/secrets/service-broker/token", "Bearer token for API authentication")
+	flag.StringVar(&tokenServerPath, "token", "/var/run/secrets/service-broker/token", "Bearer token auth server URL for API authentication")
 	flag.StringVar(&usernamePath, "username", "/var/run/secrets/service-broker/username", "Username for basic authentication")
 	flag.StringVar(&passwordPath, "password", "/var/run/secrets/service-broker/password", "Password for basic authentication")
 	flag.StringVar(&dbhostPath, "dbhost", "/var/run/secrets/service-broker/dbhost", "Database host for advanced token authentication")
@@ -152,15 +152,15 @@ func main() {
 	// Load up explicit configuration.
 	switch authentication {
 	case bearerToken:
-		glog.Infof("Bearer token authentication")
-		token, err := ioutil.ReadFile(tokenPath)
+		glog.Infof("Bearer token authentication - OAuth2")
+		token, err := ioutil.ReadFile(tokenServerPath)
 		if err != nil {
 			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
 
 		stringToken := string(token)
-		c.Token = &stringToken
+		c.TokenServer = &stringToken
 
 	case basic:
 		glog.Infof("Basic authentication")
@@ -258,11 +258,11 @@ func main() {
 			// No field is set, use default values to an in memory sqlite3 database
 			stringDbHost = "localhost"
 			stringDbPort = "5432"
-			
+
 			// Create the in memory database
 			var err error
 			db, err = sql.Open("sqlite3", ":memory:")
-			if(err != nil) {
+			if err != nil {
 				glog.Fatal(err)
 				os.Exit(errorCode)
 			}
@@ -274,8 +274,8 @@ func main() {
 			// CREDENTIALS ARE SET SO CONNECT TO SQL DATABASE
 			// Connect to the database
 			var err error
-			db, err = sql.Open("postgres", "host=" + stringDbHost + " port=" + stringDbPort + " user=" + stringDbUser + " password=" + stringDbPassword + " dbname=" + stringDbName + " sslmode=disable")
-			if(err != nil) {
+			db, err = sql.Open("postgres", "host="+stringDbHost+" port="+stringDbPort+" user="+stringDbUser+" password="+stringDbPassword+" dbname="+stringDbName+" sslmode=disable")
+			if err != nil {
 				glog.Fatal(err)
 				os.Exit(errorCode)
 			}
@@ -283,13 +283,13 @@ func main() {
 		}
 
 		c.AdvancedToken = &broker.ServerConfigurationAdvancedToken{
-			DbHost:    stringDbHost,
-			DbPort:    stringDbPort,
-			DbUser:    stringDbUser,
+			DbHost:     stringDbHost,
+			DbPort:     stringDbPort,
+			DbUser:     stringDbUser,
 			DbPassword: stringDbPassword,
-			DbName:    stringDbName,
-			Db: 	  db,
-			JwtSecret: stringJwtSecret,
+			DbName:     stringDbName,
+			Db:         db,
+			JwtSecret:  stringJwtSecret,
 		}
 
 		// Create users table if it doesn't exist with primary key auto increment
@@ -311,7 +311,7 @@ func main() {
 		defaultPassword := "password"
 		// hashed password SHA256 to string
 		hashedPassword := fmt.Sprintf("%x", sha256.Sum256([]byte(defaultPassword)))
-		
+
 		// Insert default user
 		_, err = db.Exec("INSERT INTO users (username, hashedpassword) VALUES ($1, $2) ON CONFLICT DO NOTHING", defaultUsername, hashedPassword)
 		if err != nil {

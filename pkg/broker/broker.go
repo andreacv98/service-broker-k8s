@@ -15,7 +15,9 @@
 package broker
 
 import (
+	"context"
 	"crypto/tls"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -23,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"database/sql"
 
 	"github.com/couchbase/service-broker/pkg/apis"
 	"github.com/couchbase/service-broker/pkg/client"
@@ -36,6 +37,8 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/golang-jwt/jwt"
+
+	"github.com/Nerzal/gocloak/v13"
 )
 
 // ErrInternalError is returned when something really bad happened.
@@ -98,9 +101,29 @@ func handleBrokerBearerToken(c *ServerConfiguration, w http.ResponseWriter, r *h
 		return err
 	}
 
-	if header != "Bearer "+*c.Token {
+	// Check token towards OAuth2 server.
+	parts := strings.Split(header, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
 		httpResponse(w, http.StatusUnauthorized)
-		return fmt.Errorf("%w: authorization failed", ErrUnauthorized)
+		return fmt.Errorf("%w: invalid token", ErrRequestMalformed)
+	}
+	
+	ctx := context.Background()
+	client := gocloak.NewClient(*c.TokenServer)
+	glog.Info("Created client: ", client)
+	
+	// Retrospect token.
+	retrospect, err := client.RetrospectToken(ctx, parts[1], "service-broker", "kmUKy5io9y1TJEPAMzY1COKAhHGXBWWt", "service-broker")
+	if err != nil {
+		glog.Error("Failed to retrospect token: ", err)
+		httpResponse(w, http.StatusUnauthorized)
+		return err
+	}
+	glog.Info("Retrospect token: ", retrospect)
+
+	if !*retrospect.Active {
+		httpResponse(w, http.StatusUnauthorized)
+		return fmt.Errorf("%w: token is not active", ErrRequestMalformed)
 	}
 
 	return nil
@@ -131,14 +154,14 @@ func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Reques
 	glog.Info("Authorization header: ", header)
 
 	// Extract the token from the Authorization header
-    parts := strings.Split(header, " ")
-    if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-        // Handle invalid token error
+	parts := strings.Split(header, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		// Handle invalid token error
 		httpResponse(w, http.StatusBadRequest)
 		// Return an nil and error
 		return nil, errors.New("invalid token")
-    }
-    tokenString := parts[1]
+	}
+	tokenString := parts[1]
 	glog.Info("Token: ", tokenString)
 
 	// Check the token is valid with JWT
@@ -146,22 +169,22 @@ func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Reques
 	key := []byte(c.AdvancedToken.JwtSecret)
 	// Parse the token
 	// The second parameter is a function that will return the key for validating
-    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Check the signing method
-        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			// Method of signing is not HMAC
-            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-        }
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 		// Return the key that the server owns
-        return key, err
-    })
+		return key, err
+	})
 	if err != nil {
 		// Handle error
 		glog.Warning("Error parsing token: ", err)
 		httpResponse(w, http.StatusBadRequest)
 		return nil, err
 	}
-	
+
 	// Check if the token is valid
 	if !token.Valid {
 		// Handle invalid token
@@ -170,7 +193,7 @@ func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Reques
 		return nil, errors.New("invalid token")
 	}
 	glog.Info("Token is valid: ", token.Valid)
-	
+
 	// Get the claims from the token
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
@@ -263,7 +286,7 @@ func handleContentTypeHeader(w http.ResponseWriter, r *http.Request) error {
 // valid, and that content encodings are correct.
 func handleRequestHeaders(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) error {
 	switch {
-	case c.Token != nil:
+	case c.TokenServer != nil:
 		if err := handleBrokerBearerToken(c, w, r); err != nil {
 			return err
 		}
@@ -430,8 +453,8 @@ type ServerConfiguration struct {
 	// Namespace is the namespace the broker is running in.
 	Namespace string
 
-	// Token is set when using bearer token authentication.
-	Token *string
+	// TokenServer is set when using bearer token authentication.
+	TokenServer *string
 
 	// BasicAuth is set when using basic authentication.
 	BasicAuth *ServerConfigurationBasicAuth
