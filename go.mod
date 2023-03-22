@@ -3,7 +3,7 @@ module github.com/couchbase/service-broker
 go 1.13
 
 require (
-	github.com/Nerzal/gocloak/v13 v13.1.0 // indirect
+	github.com/Nerzal/gocloak/v13 v13.1.0
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0
 	github.com/evanphx/json-patch v4.12.0+incompatible
