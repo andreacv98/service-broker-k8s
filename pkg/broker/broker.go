@@ -101,6 +101,22 @@ func handleBrokerBearerToken(c *ServerConfiguration, w http.ResponseWriter, r *h
 		return err
 	}
 
+	if header != "Bearer "+*c.Token {
+		httpResponse(w, http.StatusUnauthorized)
+		return fmt.Errorf("%w: authorization failed", ErrUnauthorized)
+	}
+
+	return nil
+}
+
+// handleAdvancedToken authenticates the request using the advanced token.
+func handleAdvancedToken(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) error {
+	header, err := getHeaderSingle(r, "Authorization")
+	if err != nil {
+		httpResponse(w, http.StatusUnauthorized)
+		return err
+	}
+
 	// Check token towards OAuth2 server.
 	parts := strings.Split(header, " ")
 	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
@@ -125,100 +141,6 @@ func handleBrokerBearerToken(c *ServerConfiguration, w http.ResponseWriter, r *h
 		httpResponse(w, http.StatusUnauthorized)
 		return fmt.Errorf("%w: token is not active", ErrRequestMalformed)
 	}
-
-	return nil
-}
-
-func extractJwtToken(r *http.Request) (string, error) {
-	header, err := getHeaderSingle(r, "Authorization")
-	if err != nil {
-		return "", err
-	}
-
-	parts := strings.Split(header, " ")
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		return "", fmt.Errorf("%w: invalid token", ErrRequestMalformed)
-	}
-
-	return parts[1], nil
-}
-
-// handleJwtAuth authenticates the request using the JWT token.
-func handleJwtAuth(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) (jwt.MapClaims, error) {
-	// Get the token from the header.
-	header, err := getHeaderSingle(r, "Authorization")
-	if err != nil {
-		httpResponse(w, http.StatusUnauthorized)
-		return nil, err
-	}
-	glog.Info("Authorization header: ", header)
-
-	// Extract the token from the Authorization header
-	parts := strings.Split(header, " ")
-	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-		// Handle invalid token error
-		httpResponse(w, http.StatusBadRequest)
-		// Return an nil and error
-		return nil, errors.New("invalid token")
-	}
-	tokenString := parts[1]
-	glog.Info("Token: ", tokenString)
-
-	// Check the token is valid with JWT
-	// Get the key from the configuration
-	key := []byte(c.AdvancedToken.JwtSecret)
-	// Parse the token
-	// The second parameter is a function that will return the key for validating
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Check the signing method
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			// Method of signing is not HMAC
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		// Return the key that the server owns
-		return key, err
-	})
-	if err != nil {
-		// Handle error
-		glog.Warning("Error parsing token: ", err)
-		httpResponse(w, http.StatusBadRequest)
-		return nil, err
-	}
-
-	// Check if the token is valid
-	if !token.Valid {
-		// Handle invalid token
-		glog.Warning("Invalid token")
-		httpResponse(w, http.StatusUnauthorized)
-		return nil, errors.New("invalid token")
-	}
-	glog.Info("Token is valid: ", token.Valid)
-
-	// Get the claims from the token
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		// Handle invalid claims
-		glog.Warning("Invalid claims")
-		httpResponse(w, http.StatusBadRequest)
-		return nil, errors.New("invalid claims")
-	}
-	glog.Info("Claims: ", claims)
-
-	return claims, nil
-}
-
-// handleAdvancedToken authenticates the request using the advanced token.
-func handleAdvancedToken(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) error {
-	// Get the claims from the JWT token
-	claims, err := handleJwtAuth(c, w, r)
-
-	if err != nil {
-		// Handle error
-		glog.Warning("Error parsing token: ", err)
-		return err
-	}
-
-	glog.Info("User authenticated: ", claims["username"])
 
 	return nil
 }

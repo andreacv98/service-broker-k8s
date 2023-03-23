@@ -87,8 +87,8 @@ func main() {
 	// authenticationType is the type of authentication to use.
 	authentication := basic
 
-	// tokenServerPath is the location of the file containing the bearer token for authentication.
-	var tokenServerPath string
+	// tokenPath is the location of the file containing the bearer token for authentication.
+	var tokenPath string
 
 	// usernamePath is the location of the file containing the username for authentication.
 	var usernamePath string
@@ -121,7 +121,7 @@ func main() {
 	var tlsPrivateKeyPath string
 
 	flag.Var(&authentication, "authentication", "Authentication type to use, either 'basic' or 'token'")
-	flag.StringVar(&tokenServerPath, "token", "/var/run/secrets/service-broker/token", "Bearer token auth server URL for API authentication")
+	flag.StringVar(&tokenPath, "token", "/var/run/secrets/service-broker/token", "Bearer token for API authentication")
 	flag.StringVar(&usernamePath, "username", "/var/run/secrets/service-broker/username", "Username for basic authentication")
 	flag.StringVar(&passwordPath, "password", "/var/run/secrets/service-broker/password", "Password for basic authentication")
 	flag.StringVar(&dbhostPath, "dbhost", "/var/run/secrets/service-broker/dbhost", "Database host for advanced token authentication")
@@ -152,15 +152,15 @@ func main() {
 	// Load up explicit configuration.
 	switch authentication {
 	case bearerToken:
-		glog.Infof("Bearer token authentication - OAuth2")
-		token, err := ioutil.ReadFile(tokenServerPath)
+		glog.Infof("Bearer token authentication")
+		token, err := ioutil.ReadFile(tokenPath)
 		if err != nil {
 			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
 
 		stringToken := string(token)
-		c.TokenServer = &stringToken
+		c.Token = &stringToken
 
 	case basic:
 		glog.Infof("Basic authentication")
