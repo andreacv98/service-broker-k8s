@@ -15,7 +15,6 @@
 package main
 
 import (
-	"crypto/sha256"
 	"crypto/tls"
 	"database/sql"
 	"errors"
@@ -24,6 +23,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	"github.com/Nerzal/gocloak/v13"
 	"github.com/couchbase/service-broker/pkg/broker"
 	"github.com/couchbase/service-broker/pkg/client"
 	"github.com/couchbase/service-broker/pkg/config"
@@ -83,6 +83,75 @@ func (a *authenticationType) String() string {
 	return string(*a)
 }
 
+func setupDatabase(stringDbHost, stringDbPort, stringDbUser, stringDbPassword, stringDbName string) (*sql.DB, error) {
+	var db *sql.DB
+	var err error
+	// Check if host or port are empty but credentials are set
+	if (stringDbHost == "" || stringDbPort == "") && (stringDbUser != "" || stringDbPassword != "" || stringDbName != "") {
+		return db, fmt.Errorf("%w: database host and port must be set if credentials are set", ErrFatal)
+	}
+
+	// NO CREDENTIALS SO DEFAULT TO SQLITE3
+	// Check if no field is set
+	if stringDbHost == "" && stringDbPort == "" && stringDbUser == "" && stringDbPassword == "" && stringDbName == "" {
+		// No field is set, use default values to an in memory sqlite3 database
+		stringDbHost = "localhost"
+		stringDbPort = "5432"
+
+		// Create the in memory database
+		db, err = sql.Open("sqlite3", ":memory:")
+		if err != nil {
+			return db, err
+		}
+		glog.Infof("Connected to database in memory at %s:%s", stringDbHost, stringDbPort)
+	} else if stringDbHost == "" || stringDbPort == "" || stringDbUser == "" || stringDbPassword == "" || stringDbName == "" {
+		return db, fmt.Errorf("%w: database host, port, user, password and name must be set", ErrFatal)
+	} else {
+		// CREDENTIALS ARE SET SO CONNECT TO SQL DATABASE
+		// Connect to the database
+		db, err = sql.Open("postgres", "host="+stringDbHost+" port="+stringDbPort+" user="+stringDbUser+" password="+stringDbPassword+" dbname="+stringDbName+" sslmode=disable")
+		if err != nil {
+			return db, err
+		}
+		glog.Infof("Connected to database at %s:%s", stringDbHost, stringDbPort)
+	}
+	return db, nil
+}
+
+func populateDatabase(db *sql.DB) error {
+	var err error
+	// Create users table if it doesn't exist with primary key auto increment
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users_clusters (id SERIAL PRIMARY KEY, userid TEXT NOT NULL, namespace TEXT NOT NULL)")
+	if err != nil {
+		return err
+	}
+	// Create bought services and plans table with foreign key to users table if it doesn't exist
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, users_clusters_id INTEGER NOT NULL, service_id TEXT NOT NULL, plan_id TEXT NOT NULL, FOREIGN KEY (users_clusters_id) REFERENCES users_clusters(id))")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func setupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm string) (*gocloak.GoCloak, error) {
+
+	var err error
+	var keycloakClient *gocloak.GoCloak
+
+	// Check Keycloak missing parameters
+	if stringKeycloakURL == "" || stringKeycloakClientID == "" || stringKeycloakClientSecret == "" || stringKeycloakRealm == "" {
+		glog.Fatal(fmt.Errorf("%w: Keycloak parameters are missing", ErrFatal))
+		os.Exit(errorCode)
+	}
+
+	// Create client
+	// Create client from AdvancedAuthentication.KeycloakConfiguration data
+	keycloakClient = gocloak.NewClient(stringKeycloakURL)
+	glog.Info("Created client: ", keycloakClient)
+
+	return keycloakClient, err
+}
+
 func main() {
 	// authenticationType is the type of authentication to use.
 	authentication := basic
@@ -111,8 +180,17 @@ func main() {
 	// dbnamePath is the database name for advanced token authentication.
 	var dbnamePath string
 
-	// jwtsecretPath is the location of the file containing the JWT secret for authentication.
-	var jwtsecretPath string
+	// keycloakURLPath is the location of the file containing the Keycloak URL.
+	var keycloakURLPath string
+
+	// keycloakClientIDPath is the location of the file containing the Keycloak Client ID.
+	var keycloakClientIDPath string
+
+	// keycloakClientSecretPath is the location of the file containing the Keycloak Client Secret.
+	var keycloakClientSecretPath string
+
+	// keycloakRealmPath is the location of the file containing the Keycloak Realm.
+	var keycloakRealmPath string
 
 	// tlsCertificatePath is the location of the file containing the TLS server certifcate.
 	var tlsCertificatePath string
@@ -129,7 +207,10 @@ func main() {
 	flag.StringVar(&dbuserPath, "dbuser", "/var/run/secrets/service-broker/dbuser", "Database user for advanced token authentication")
 	flag.StringVar(&dbpasswordPath, "dbpassword", "/var/run/secrets/service-broker/dbpassword", "Database password for advanced token authentication")
 	flag.StringVar(&dbnamePath, "dbname", "/var/run/secrets/service-broker/dbname", "Database name for advanced token authentication")
-	flag.StringVar(&jwtsecretPath, "jwtsecret", "/var/run/secrets/service-broker/jwtsecret", "JWT secret key for advanced token authentication")
+	flag.StringVar(&keycloakURLPath, "keycloak-host", "/var/run/secrets/service-broker/keycloak-host", "Keycloak URL for advanced token authentication")
+	flag.StringVar(&keycloakClientIDPath, "keycloak-client-id", "/var/run/secrets/service-broker/keycloak-client-id", "Keycloak client ID for advanced token authentication")
+	flag.StringVar(&keycloakClientSecretPath, "keycloak-client-secret", "/var/run/secrets/service-broker/keycloak-client-secret", "Keycloak client secret for advanced token authentication")
+	flag.StringVar(&keycloakRealmPath, "keycloak-realm", "/var/run/secrets/service-broker/keycloak-realm", "Keycloak realm for advanced token authentication")
 	flag.StringVar(&tlsCertificatePath, "tls-certificate", "/var/run/secrets/service-broker/tls-certificate", "Path to the server TLS certificate")
 	flag.StringVar(&tlsPrivateKeyPath, "tls-private-key", "/var/run/secrets/service-broker/tls-private-key", "Path to the server TLS key")
 	flag.StringVar(&config.ConfigurationName, "config", config.ConfigurationNameDefault, "Configuration resource name")
@@ -222,8 +303,29 @@ func main() {
 			os.Exit(errorCode)
 		}
 
-		// Read jwt secret from path
-		jwtsecret, err := ioutil.ReadFile(jwtsecretPath)
+		// Read keycloak host from path
+		keycloakURL, err := ioutil.ReadFile(keycloakURLPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read keycloak client ID from path
+		keycloakClientID, err := ioutil.ReadFile(keycloakClientIDPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read keycloak client secret from path
+		keycloakClientSecret, err := ioutil.ReadFile(keycloakClientSecretPath)
+		if err != nil {
+			glog.Fatal(err)
+			os.Exit(errorCode)
+		}
+
+		// Read keycloak realm from path
+		keycloakRealm, err := ioutil.ReadFile(keycloakRealmPath)
 		if err != nil {
 			glog.Fatal(err)
 			os.Exit(errorCode)
@@ -234,89 +336,48 @@ func main() {
 		stringDbUser := string(dbuser)
 		stringDbPassword := string(dbpassword)
 		stringDbName := string(dbname)
-		stringJwtSecret := string(jwtsecret)
+		stringKeycloakURL := string(keycloakURL)
+		stringKeycloakClientID := string(keycloakClientID)
+		stringKeycloakClientSecret := string(keycloakClientSecret)
+		stringKeycloakRealm := string(keycloakRealm)
 
-		var db *sql.DB
-
-		// MISSING PARAMETERS
-
-		// Check if JWT secret is empty
-		if stringJwtSecret == "" {
-			glog.Fatal(fmt.Errorf("%w: JWT secret must be set", ErrFatal))
+		// Setup Database
+		db, err := setupDatabase(stringDbHost, stringDbPort, stringDbUser, stringDbPassword, stringDbName)
+		if err != nil {
+			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
 
-		// Check if host or port are empty but credentials are set
-		if (stringDbHost == "" || stringDbPort == "") && (stringDbUser != "" || stringDbPassword != "" || stringDbName != "") {
-			glog.Fatal(fmt.Errorf("%w: database host and port must be set if credentials are set", ErrFatal))
+		// Populate database with tables
+		err = populateDatabase(db)
+		if err != nil {
+			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
 
-		// NO CREDENTIALS SO DEFAULT TO SQLITE3
-		// Check if no field is set
-		if stringDbHost == "" && stringDbPort == "" && stringDbUser == "" && stringDbPassword == "" && stringDbName == "" {
-			// No field is set, use default values to an in memory sqlite3 database
-			stringDbHost = "localhost"
-			stringDbPort = "5432"
-
-			// Create the in memory database
-			var err error
-			db, err = sql.Open("sqlite3", ":memory:")
-			if err != nil {
-				glog.Fatal(err)
-				os.Exit(errorCode)
-			}
-			glog.Infof("Connected to database in memory at %s:%s", stringDbHost, stringDbPort)
-		} else if stringDbHost == "" || stringDbPort == "" || stringDbUser == "" || stringDbPassword == "" || stringDbName == "" {
-			glog.Fatal(fmt.Errorf("%w: database host, port, user, password and name must be set", ErrFatal))
+		// Setup Keycloak
+		client, err := setupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm)
+		if err != nil {
+			glog.Fatal(err)
 			os.Exit(errorCode)
-		} else {
-			// CREDENTIALS ARE SET SO CONNECT TO SQL DATABASE
-			// Connect to the database
-			var err error
-			db, err = sql.Open("postgres", "host="+stringDbHost+" port="+stringDbPort+" user="+stringDbUser+" password="+stringDbPassword+" dbname="+stringDbName+" sslmode=disable")
-			if err != nil {
-				glog.Fatal(err)
-				os.Exit(errorCode)
-			}
-			glog.Infof("Connected to database at %s:%s", stringDbHost, stringDbPort)
 		}
 
 		c.AdvancedToken = &broker.ServerConfigurationAdvancedToken{
-			DbHost:     stringDbHost,
-			DbPort:     stringDbPort,
-			DbUser:     stringDbUser,
-			DbPassword: stringDbPassword,
-			DbName:     stringDbName,
-			Db:         db,
-			JwtSecret:  stringJwtSecret,
-		}
-
-		// Create users table if it doesn't exist with primary key auto increment
-		_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, hashedpassword TEXT NOT NULL)")
-		if err != nil {
-			glog.Fatal(err)
-			os.Exit(errorCode)
-		}
-		// Create bought services and plans table with foreign key to users table if it doesn't exist
-		_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, service_id TEXT NOT NULL, plan_id TEXT NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
-		if err != nil {
-			glog.Fatal(err)
-			os.Exit(errorCode)
-		}
-
-		// default username
-		defaultUsername := "admin"
-		// default password
-		defaultPassword := "password"
-		// hashed password SHA256 to string
-		hashedPassword := fmt.Sprintf("%x", sha256.Sum256([]byte(defaultPassword)))
-
-		// Insert default user
-		_, err = db.Exec("INSERT INTO users (username, hashedpassword) VALUES ($1, $2) ON CONFLICT DO NOTHING", defaultUsername, hashedPassword)
-		if err != nil {
-			glog.Fatal(err)
-			os.Exit(errorCode)
+			DatabaseConfiguration: broker.DatabaseConfiguration{
+				DbHost:     stringDbHost,
+				DbPort:     stringDbPort,
+				DbName:     stringDbName,
+				DbUser:     stringDbUser,
+				DbPassword: stringDbPassword,
+				Db:         db,
+			},
+			KeycloakConfiguration: broker.KeycloakConfiguration{
+				KeycloakURL:  stringKeycloakURL,
+				ClientID:     stringKeycloakClientID,
+				ClientSecret: stringKeycloakClientSecret,
+				Realm:        stringKeycloakRealm,
+				Client:       client,
+			},
 		}
 
 	}

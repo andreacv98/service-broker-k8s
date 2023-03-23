@@ -70,7 +70,7 @@ func TestMain(m *testing.M) {
 
 	configuration := &broker.ServerConfiguration{
 		Namespace:   util.Namespace,
-		TokenServer: &token,
+		Token:       &token,
 		Certificate: cert,
 	}
 

@@ -15,13 +15,13 @@
 package broker
 
 import (
-	"crypto/sha256"
+	"context"
 	"database/sql"
-	"encoding/hex"
 	goerrors "errors"
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 
 	"github.com/couchbase/service-broker/pkg/api"
 	"github.com/couchbase/service-broker/pkg/config"
@@ -29,7 +29,6 @@ import (
 	"github.com/couchbase/service-broker/pkg/operation"
 	"github.com/couchbase/service-broker/pkg/provisioners"
 	"github.com/couchbase/service-broker/pkg/registry"
-	"github.com/golang-jwt/jwt"
 
 	"github.com/golang/glog"
 	"github.com/julienschmidt/httprouter"
@@ -52,41 +51,44 @@ func handleReadCatalog(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	JSONResponse(w, http.StatusOK, config.Config().Spec.Catalog.Convert())
 }
 
-func authorize(configuration *ServerConfiguration, r *http.Request, serviceID, planID string) error {
-	// Check if the username in the claims matches the service ID request in the bought_services table
-	tokenString, err := extractJwtToken(r)
+func authorizeProvisioning(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
+	// Extract userid from jwt token using gocloak
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+
+	userID, err := extractUserId(c, tokenString)
 	if err != nil {
 		return err
 	}
-	
-	key := []byte(configuration.AdvancedToken.JwtSecret)
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Check the signing method
-        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			// Method of signing is not HMAC
-            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-        }
-		// Return the key that the server owns
-        return key, err
-    })
 
-	claims := token.Claims.(jwt.MapClaims)
-
-	if err != nil {
-		return fmt.Errorf("unable to parse claims")
-	}
-
-	// Check if service id and plan id required have been bought by the user with username extracted from claims
-	if err := checkBoughtServices(configuration.AdvancedToken.Db, claims["username"].(string), serviceID, planID); err != nil {
+	// Check if user has bought the service
+	if err := checkBoughtServices(c.AdvancedToken.DatabaseConfiguration.Db, userID, serviceID, planID); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-func checkBoughtServices(db *sql.DB, username, serviceID, planID string) error {
+func extractUserId(c *ServerConfiguration, tokenString string) (string, error) {
+	var userID string
+	ctx := context.Background()
+	client := c.AdvancedToken.KeycloakConfiguration.Client
+
+	_, claims, err := client.DecodeAccessToken(
+		ctx,
+		tokenString,
+		c.AdvancedToken.KeycloakConfiguration.Realm,
+	)
+	if err != nil {
+		return userID, err
+	}
+
+	userID = (*claims)["roles"].(string)
+
+	return userID, nil
+}
+
+func checkBoughtServices(db *sql.DB, userid, serviceID, planID string) error {
 	// Get bought services from database
-	rows, err := db.Query("SELECT service_id, plan_id FROM users, bought_services WHERE username = $1 AND users.id = bought_services.user_id", username)
+	rows, err := db.Query("SELECT service_id, plan_id FROM users_clusters, bought_services WHERE userid = $1 AND users_clusters.id = bought_services.users_clusters_id", userid)
 	if err != nil {
 		return err
 	}
@@ -102,6 +104,39 @@ func checkBoughtServices(db *sql.DB, username, serviceID, planID string) error {
 		}
 	}
 	return fmt.Errorf("service id and plan id not bought by user")
+}
+
+func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
+	// Check role of the user is "manager"
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+
+	ctx := context.Background()
+	client := c.AdvancedToken.KeycloakConfiguration.Client
+	userId, err := extractUserId(c, tokenString)
+	if err != nil {
+		return err
+	}
+
+	roles, err := client.GetRoleMappingByUserID(
+		ctx,
+		tokenString,
+		c.AdvancedToken.KeycloakConfiguration.Realm,
+		userId,
+	)
+	if err != nil {
+		return err
+	}
+
+	for index, role := range (*roles.RealmMappings) {
+		if (*role.Name) == "manager" {
+			return nil
+		}
+		if index == len((*roles.RealmMappings))-1 {
+			return fmt.Errorf("user is not manager")
+		}
+	}
+
+	return nil
 }
 
 // handleCreateServiceInstance creates a service instance of a plan.
@@ -122,12 +157,6 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 		}
 		glog.Info("Request parsed")
 
-		// Check if user is authorized to create the instance.
-		if err := authorize(configuration, r, request.ServiceID, request.PlanID); err != nil {
-			jsonError(w, err)
-			return
-		}
-
 		// Check parameters.
 		instanceID := params.ByName("instance_id")
 		if instanceID == "" {
@@ -136,6 +165,12 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 		}
 
 		if err := validateServicePlan(config.Config(), request.ServiceID, request.PlanID); err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Check if the user has bought the service
+		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -1239,63 +1274,6 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 		deleter.Run(entry)
 
 		response := &api.DeleteServiceBindingResponse{}
-		JSONResponse(w, http.StatusOK, response)
-	}
-}
-
-// handleLogin handles the login request from POST body
-func handleLogin(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
-	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-		// Parse the login request.
-		request := &api.LoginRequest{}
-		if err := jsonRequest(r, request); err != nil {
-			jsonError(w, err)
-			return
-		}		
-
-		if request.Username == "" || request.Password == "" {
-			jsonError(w, errors.NewParameterError("username or password is empty"))
-			return
-		}
-
-		// encode passsword in SHA-256
-		sha := sha256.New()
-		sha.Write([]byte(request.Password))
-		encodedPassword := hex.EncodeToString(sha.Sum(nil))
-		glog.Info("encodedPassword: ", encodedPassword)
-		
-		// Check with query to database if username and password are correct
-		query := "SELECT * FROM users WHERE username = $1 AND hashedpassword = $2"
-		rows, err := configuration.AdvancedToken.Db.Query(query, request.Username, encodedPassword)
-		if err != nil {
-			jsonError(w, err)
-			return
-		}
-		
-		// Check if there is a result
-		if !rows.Next() {
-			jsonError(w, errors.NewParameterError("username or password is incorrect"))
-			return
-		}
-
-		glog.Info("User exists: ", request.Username)
-
-		// User exists, generate token
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"username": request.Username,
-		})
-		
-		// Sign token with secret
-		tokenString, err := token.SignedString([]byte(configuration.AdvancedToken.JwtSecret))
-		if err != nil {
-			jsonError(w, err)
-			return
-		}
-
-		// Return loginRespone with JSON
-		response := &api.LoginResponse{
-			Token: tokenString,
-		}
 		JSONResponse(w, http.StatusOK, response)
 	}
 }

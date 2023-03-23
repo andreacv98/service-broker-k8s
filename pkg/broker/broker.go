@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Nerzal/gocloak/v13"
 	"github.com/couchbase/service-broker/pkg/apis"
 	"github.com/couchbase/service-broker/pkg/client"
 	"github.com/couchbase/service-broker/pkg/config"
@@ -35,10 +36,6 @@ import (
 	"github.com/julienschmidt/httprouter"
 
 	"k8s.io/client-go/kubernetes/scheme"
-
-	"github.com/golang-jwt/jwt"
-
-	"github.com/Nerzal/gocloak/v13"
 )
 
 // ErrInternalError is returned when something really bad happened.
@@ -123,13 +120,18 @@ func handleAdvancedToken(c *ServerConfiguration, w http.ResponseWriter, r *http.
 		httpResponse(w, http.StatusUnauthorized)
 		return fmt.Errorf("%w: invalid token", ErrRequestMalformed)
 	}
-	
+
 	ctx := context.Background()
-	client := gocloak.NewClient(*c.TokenServer)
-	glog.Info("Created client: ", client)
-	
+	client := c.AdvancedToken.KeycloakConfiguration.Client
+
 	// Retrospect token.
-	retrospect, err := client.RetrospectToken(ctx, parts[1], "service-broker", "kmUKy5io9y1TJEPAMzY1COKAhHGXBWWt", "service-broker")
+	retrospect, err := client.RetrospectToken(
+		ctx,
+		parts[1],
+		c.AdvancedToken.KeycloakConfiguration.ClientID,
+		c.AdvancedToken.KeycloakConfiguration.ClientSecret,
+		c.AdvancedToken.KeycloakConfiguration.Realm,
+	)
 	if err != nil {
 		glog.Error("Failed to retrospect token: ", err)
 		httpResponse(w, http.StatusUnauthorized)
@@ -208,7 +210,7 @@ func handleContentTypeHeader(w http.ResponseWriter, r *http.Request) error {
 // valid, and that content encodings are correct.
 func handleRequestHeaders(c *ServerConfiguration, w http.ResponseWriter, r *http.Request) error {
 	switch {
-	case c.TokenServer != nil:
+	case c.Token != nil:
 		if err := handleBrokerBearerToken(c, w, r); err != nil {
 			return err
 		}
@@ -257,8 +259,6 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.GET("/v2/service_instances/:instance_id/last_operation", handlePollServiceInstance(configuration))
 	router.PUT("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleCreateServiceBinding(configuration))
 	router.DELETE("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleDeleteServiceBinding(configuration))
-
-	router.POST("/login", handleLogin(configuration))
 
 	return &openServiceBrokerHandler{
 		Handler:       router,
@@ -347,6 +347,14 @@ type ServerConfigurationBasicAuth struct {
 }
 
 type ServerConfigurationAdvancedToken struct {
+	// Database configuration
+	DatabaseConfiguration DatabaseConfiguration
+
+	// Keycloak configuration
+	KeycloakConfiguration KeycloakConfiguration
+}
+
+type DatabaseConfiguration struct {
 	// Database host
 	DbHost string
 
@@ -364,9 +372,23 @@ type ServerConfigurationAdvancedToken struct {
 
 	// Database object
 	Db *sql.DB
+}
 
-	// JWT secret key
-	JwtSecret string
+type KeycloakConfiguration struct {
+	// Keycloak host
+	KeycloakURL string
+
+	// Client id
+	ClientID string
+
+	// Client secret
+	ClientSecret string
+
+	// Realm
+	Realm string
+
+	// Keycloak client
+	Client *gocloak.GoCloak
 }
 
 // ServerConfiguration is used to propagate server configuration to the server instance
@@ -375,8 +397,8 @@ type ServerConfiguration struct {
 	// Namespace is the namespace the broker is running in.
 	Namespace string
 
-	// TokenServer is set when using bearer token authentication.
-	TokenServer *string
+	// Token is set when using bearer token authentication.
+	Token *string
 
 	// BasicAuth is set when using basic authentication.
 	BasicAuth *ServerConfigurationBasicAuth
