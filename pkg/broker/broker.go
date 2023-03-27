@@ -259,6 +259,7 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.GET("/v2/service_instances/:instance_id/last_operation", handlePollServiceInstance(configuration))
 	router.PUT("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleCreateServiceBinding(configuration))
 	router.DELETE("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleDeleteServiceBinding(configuration))
+	router.POST("/buy", handleBuyService(configuration))
 
 	return &openServiceBrokerHandler{
 		Handler:       router,
@@ -325,7 +326,7 @@ func (handler *openServiceBrokerHandler) ServeHTTP(w http.ResponseWriter, r *htt
 	}
 
 	// Ignore security checks for the readiness handler
-	if r.URL.Path != "/readyz" && r.URL.Path != "/login" && r.URL.Path != "/register" {
+	if r.URL.Path != "/readyz" {
 		// Process headers, API versions, content types.
 		if err := handleRequestHeaders(handler.configuration, writer, r); err != nil {
 			glog.V(log.LevelDebug).Info(err)

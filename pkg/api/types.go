@@ -220,16 +220,22 @@ type Endpoint struct {
 type DeleteServiceBindingResponse struct {
 }
 
-// LoginRequest is the request to login to the service broker.
-type LoginRequest struct {
-	// Username is the username to login with.
-	Username string `json:"username"`
-	// Password is the password to login with.
-	Password string `json:"password"`
+// BuyRequest is the request to buy a service.
+type BuyServiceRequest struct {
+	// ServiceID is the ID of the service to buy.
+	ServiceID string `json:"service_id"`
+	// PlanID is the ID of the plan to buy.
+	PlanID string `json:"plan_id"`
+	// UserID is the ID of the user to buy the service for.
+	UserID string `json:"user_id"`
+	// Namespace is the namespace to buy the service in.
+	Namespace string `json:"namespace"`
 }
 
-// LoginResponse is the response to login to the service broker.
-type LoginResponse struct {
-	// Token is the token to use for subsequent requests.
-	Token string `json:"token"`
+// BuyResponse is the response to buy a service.
+type BuyServiceResponse struct {
+	// PurchaseID is the ID of the purchase.
+	PurchaseID string `json:"purchase_id"`
 }
+
+// 

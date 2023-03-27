@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/couchbase/service-broker/pkg/api"
@@ -54,16 +55,19 @@ func handleReadCatalog(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 func authorizeProvisioning(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
 	// Extract userid from jwt token using gocloak
 	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
 
 	userID, err := extractUserId(c, tokenString)
 	if err != nil {
 		return err
 	}
+	glog.Info("User ID: ", userID)
 
 	// Check if user has bought the service
 	if err := checkBoughtServices(c.AdvancedToken.DatabaseConfiguration.Db, userID, serviceID, planID); err != nil {
 		return err
 	}
+	glog.Info("User has bought the service")
 	return nil
 }
 
@@ -80,8 +84,10 @@ func extractUserId(c *ServerConfiguration, tokenString string) (string, error) {
 	if err != nil {
 		return userID, err
 	}
+	glog.Info("Decoded token: ", claims)
 
-	userID = (*claims)["roles"].(string)
+	userID = (*claims)["sub"].(string)
+	glog.Info("User ID: ", userID)
 
 	return userID, nil
 }
@@ -109,6 +115,7 @@ func checkBoughtServices(db *sql.DB, userid, serviceID, planID string) error {
 func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
 	// Check role of the user is "manager"
 	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
 
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
@@ -116,18 +123,32 @@ func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planI
 	if err != nil {
 		return err
 	}
+	glog.Info("User ID: ", userId)
+
+	jwtClient, err := client.LoginClient(
+		ctx,
+		c.AdvancedToken.KeycloakConfiguration.ClientID,
+		c.AdvancedToken.KeycloakConfiguration.ClientSecret,
+		c.AdvancedToken.KeycloakConfiguration.Realm,
+	)
+	if err != nil {
+		return err
+	}
+	glog.Info("JWT Client: ", jwtClient)
 
 	roles, err := client.GetRoleMappingByUserID(
 		ctx,
-		tokenString,
+		jwtClient.AccessToken,
 		c.AdvancedToken.KeycloakConfiguration.Realm,
 		userId,
 	)
 	if err != nil {
 		return err
 	}
+	glog.Info("Roles: ", roles)
 
 	for index, role := range (*roles.RealmMappings) {
+		glog.Info("Role: ", *role.Name)
 		if (*role.Name) == "manager" {
 			return nil
 		}
@@ -135,6 +156,7 @@ func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planI
 			return fmt.Errorf("user is not manager")
 		}
 	}
+	glog.Info("User is manager")
 
 	return nil
 }
@@ -609,6 +631,12 @@ func handleUpdateServiceInstance(configuration *ServerConfiguration) func(http.R
 			return
 		}
 
+		// Check if the user has bought the service
+		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
+			jsonError(w, err)
+			return
+		}
+
 		if err := planUpdatable(config.Config(), request.ServiceID, planID, newPlanID); err != nil {
 			jsonError(w, err)
 			return
@@ -708,6 +736,12 @@ func handleDeleteServiceInstance(configuration *ServerConfiguration) func(http.R
 
 		planID, err := getSingleParameter(r, "plan_id")
 		if err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Check if the user has bought the service
+		if err := authorizeProvisioning(configuration, r, serviceID, planID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -944,6 +978,12 @@ func handleCreateServiceBinding(configuration *ServerConfiguration) func(http.Re
 		}
 
 		if err := validateParameters(config.Config(), request.ServiceID, request.PlanID, schemaTypeServiceBinding, schemaOperationCreate, request.Parameters); err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Check if the user has bought the service
+		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -1237,6 +1277,12 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 			return
 		}
 
+		// Check if the user has bought the service
+		if err := authorizeProvisioning(configuration, r, serviceID, planID); err != nil {
+			jsonError(w, err)
+			return
+		}
+
 		serviceInstanceServiceID, ok, err := entry.GetString(registry.ServiceID)
 		if err != nil {
 			jsonError(w, err)
@@ -1274,6 +1320,112 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 		deleter.Run(entry)
 
 		response := &api.DeleteServiceBindingResponse{}
+		JSONResponse(w, http.StatusOK, response)
+	}
+}
+
+// handleBuyService buys a service.
+func handleBuyService(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+
+		// Parse the request body.
+		request := &api.BuyServiceRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Get service_id and plan_id from the request body
+		serviceID := request.ServiceID
+		if serviceID == "" {
+			jsonError(w, fmt.Errorf("%w: request missing service_id parameter", ErrUnexpected))
+			return
+		}
+
+		planID := request.PlanID
+		if planID == "" {
+			jsonError(w, fmt.Errorf("%w: request missing plan_id parameter", ErrUnexpected))
+			return
+		}
+
+		// validate service plan
+		if err := validateServicePlan(config.Config(), serviceID, planID); err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Get user_id and namespace from the request body
+		userID := request.UserID
+		if userID == "" {
+			jsonError(w, fmt.Errorf("%w: request missing user_id parameter", ErrUnexpected))
+			return
+		}
+
+		namespace := request.Namespace
+		if namespace == "" {
+			jsonError(w, fmt.Errorf("%w: request missing namespace parameter", ErrUnexpected))
+			return
+		}
+
+		glog.Info("Request to buy service: ", serviceID, " plan: ", planID, " for user: ", userID, " in namespace: ", namespace)
+
+		// Check if the user who request the purchase can buy the service
+		if err := authorizePurchase(configuration, r, serviceID, planID); err != nil {
+			jsonError(w, err)
+			return
+		}
+		glog.Info("user authorized to buy the service")
+
+		// Check if the user is already registred with the specified namespace in the database
+		db := configuration.AdvancedToken.DatabaseConfiguration.Db
+		rows, err := db.Query("SELECT id FROM users_clusters WHERE namespace = $1 AND userid = $2", namespace, userID)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		defer rows.Close()
+		if !rows.Next() {
+			jsonError(w, errors.NewResourceGoneError("user and namespaces not registred"))
+			return
+		}
+		// Get the users_clusters.id
+		// id of the userCluster
+		var usersClustersID int
+		err = rows.Scan(&usersClustersID)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		glog.Info("usersClustersID: ", usersClustersID)
+
+		// Check if the user has already bought the service
+		rows, err = db.Query("SELECT * FROM bought_services, users_clusters WHERE bought_services.service_id = $1 AND bought_services.plan_id = $2 AND users_clusters.namespace = $3 AND users_clusters.userid = $4 AND users_clusters_id = users_clusters.id", serviceID, planID, namespace, userID)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		defer rows.Close()
+		if rows.Next() {
+			jsonError(w, errors.NewResourceGoneError("service already bought"))
+			return
+		}
+		glog.Info("service not already bought")
+
+		// Insert the purchase in the database
+		row := db.QueryRow("INSERT INTO bought_services (service_id, plan_id, users_clusters_id) VALUES ($1, $2, $3) RETURNING id", serviceID, planID, usersClustersID)
+
+		// Get the purchase id
+		var purchaseID int
+		row.Scan(&purchaseID)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		glog.Info("purchaseID: ", purchaseID)
+
+		response := &api.BuyServiceResponse{
+			PurchaseID: strconv.Itoa(int(purchaseID)),
+		}
 		JSONResponse(w, http.StatusOK, response)
 	}
 }
