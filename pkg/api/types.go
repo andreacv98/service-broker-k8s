@@ -220,8 +220,8 @@ type Endpoint struct {
 type DeleteServiceBindingResponse struct {
 }
 
-// BuyRequest is the request to buy a service.
-type BuyServiceRequest struct {
+// ServiceSubscriptionRequest is the request to subscribe to a service.
+type ServiceSubscriptionRequest struct {
 	// ServiceID is the ID of the service to buy.
 	ServiceID string `json:"service_id"`
 	// PlanID is the ID of the plan to buy.
@@ -232,10 +232,28 @@ type BuyServiceRequest struct {
 	Namespace string `json:"namespace"`
 }
 
-// BuyResponse is the response to buy a service.
-type BuyServiceResponse struct {
-	// PurchaseID is the ID of the purchase.
-	PurchaseID string `json:"purchase_id"`
+// ServiceSubscriptionResponse is the response to subscribe to a service.
+type ServiceSubscriptionResponse struct {
+	// SubscriptionID is the ID of the subscription.
+	SubscriptionID string `json:"subscription_id"`
 }
 
-// 
+// ServiceUnsubscriptionRequest is the request to unsubscribe from a service.
+type ServiceUnsubscriptionRequest struct {
+	// SubscriptionID is the ID of the subscription to unsubscribe from.
+	SubscriptionID string `json:"subscription_id"`
+}
+
+// ServiceUnsubscriptionResponse is the response to unsubscribe from a service.
+type ServiceUnsubscriptionResponse struct {
+}
+
+// PeeringRequest is the request to create a peering.
+type PeeringRequest struct {
+	// TODO: add fields
+}
+
+// PeeringResponse is the response to create a peering.
+type PeeringResponse struct {
+	// TODO: add fields
+}

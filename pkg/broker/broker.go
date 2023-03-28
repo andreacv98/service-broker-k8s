@@ -259,7 +259,9 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.GET("/v2/service_instances/:instance_id/last_operation", handlePollServiceInstance(configuration))
 	router.PUT("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleCreateServiceBinding(configuration))
 	router.DELETE("/v2/service_instances/:instance_id/service_bindings/:binding_id", handleDeleteServiceBinding(configuration))
-	router.POST("/buy", handleBuyService(configuration))
+	router.POST("/service_subscription", handleServiceSubscription(configuration))
+	router.DELETE("/service_subscription", handleDeleteServiceSubscription(configuration))
+	router.POST("/peering", handlePeering(configuration))
 
 	return &openServiceBrokerHandler{
 		Handler:       router,

@@ -112,19 +112,18 @@ func checkBoughtServices(db *sql.DB, userid, serviceID, planID string) error {
 	return fmt.Errorf("service id and plan id not bought by user")
 }
 
-func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
-	// Check role of the user is "manager"
-	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
-	glog.Info("Token: ", tokenString)
-
+func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []string) error {
+	// Check role of the user
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
+	// Extract userid from tokenstring using gocloak
 	userId, err := extractUserId(c, tokenString)
 	if err != nil {
 		return err
 	}
 	glog.Info("User ID: ", userId)
 
+	// Obtain jwt client
 	jwtClient, err := client.LoginClient(
 		ctx,
 		c.AdvancedToken.KeycloakConfiguration.ClientID,
@@ -136,6 +135,7 @@ func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planI
 	}
 	glog.Info("JWT Client: ", jwtClient)
 
+	// Get role mapping as admin client logged of the user id previously extracted
 	roles, err := client.GetRoleMappingByUserID(
 		ctx,
 		jwtClient.AccessToken,
@@ -147,19 +147,66 @@ func authorizePurchase(c *ServerConfiguration, r *http.Request, serviceID, planI
 	}
 	glog.Info("Roles: ", roles)
 
-	for index, role := range (*roles.RealmMappings) {
-		glog.Info("Role: ", *role.Name)
-		if (*role.Name) == "manager" {
-			return nil
+	// Check if in roles there are all the roles required
+	for _, userRole := range *(roles.RealmMappings) {
+		if(len(rolesRequired) == 0) {
+			// Found all roles required
+			break
 		}
-		if index == len((*roles.RealmMappings))-1 {
-			return fmt.Errorf("user is not manager")
+		for index, roleRequired := range rolesRequired {
+			if (*userRole.Name) == roleRequired {
+				// Delete roleRequired from rolesRequired
+				glog.Info("Found role required: ", roleRequired)
+				if(len(roleRequired) == 1) {
+					// Delete last element
+					rolesRequired = []string{}
+					break
+				} else {
+					// Delete element
+					rolesRequired[index] = rolesRequired[len(rolesRequired)-1]
+					rolesRequired = rolesRequired[:len(rolesRequired)-1]
+				}
+			}
 		}
+	}
+	
+	// Check lenght of rolesRequired, if it's zero, all roles required are present otherwise return error
+	if len(rolesRequired) != 0 {
+		return fmt.Errorf("user does not have the required roles")
+	}
+	glog.Info("User has the required roles")
+
+	return nil
+}
+
+func authorizeSubscription(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
+	// Extract token from request
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
+
+	// Check role of the user is "manager"
+	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+		return err
 	}
 	glog.Info("User is manager")
 
 	return nil
 }
+
+func authorizeUnsubscription(c *ServerConfiguration, r *http.Request) error {
+	// Extract token from request
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
+
+	// Check role of the user is "manager"
+	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+		return err
+	}
+	glog.Info("User is manager")
+
+	return nil
+}
+
 
 // handleCreateServiceInstance creates a service instance of a plan.
 func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
@@ -1324,12 +1371,12 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 	}
 }
 
-// handleBuyService buys a service.
-func handleBuyService(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+// handleServiceSubscription buys a service.
+func handleServiceSubscription(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 
 		// Parse the request body.
-		request := &api.BuyServiceRequest{}
+		request := &api.ServiceSubscriptionRequest{}
 		if err := jsonRequest(r, request); err != nil {
 			jsonError(w, err)
 			return
@@ -1370,7 +1417,7 @@ func handleBuyService(configuration *ServerConfiguration) func(http.ResponseWrit
 		glog.Info("Request to buy service: ", serviceID, " plan: ", planID, " for user: ", userID, " in namespace: ", namespace)
 
 		// Check if the user who request the purchase can buy the service
-		if err := authorizePurchase(configuration, r, serviceID, planID); err != nil {
+		if err := authorizeSubscription(configuration, r, serviceID, planID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -1415,17 +1462,56 @@ func handleBuyService(configuration *ServerConfiguration) func(http.ResponseWrit
 		row := db.QueryRow("INSERT INTO bought_services (service_id, plan_id, users_clusters_id) VALUES ($1, $2, $3) RETURNING id", serviceID, planID, usersClustersID)
 
 		// Get the purchase id
-		var purchaseID int
-		row.Scan(&purchaseID)
+		var subscriptionID int
+		row.Scan(&subscriptionID)
 		if err != nil {
 			jsonError(w, err)
 			return
 		}
-		glog.Info("purchaseID: ", purchaseID)
+		glog.Info("purchaseID: ", subscriptionID)
 
-		response := &api.BuyServiceResponse{
-			PurchaseID: strconv.Itoa(int(purchaseID)),
+		response := &api.ServiceSubscriptionResponse{
+			SubscriptionID: strconv.Itoa(int(subscriptionID)),
 		}
 		JSONResponse(w, http.StatusOK, response)
+	}
+}
+
+// handleServiceUnsubscription deletes a service subscription.
+func handleDeleteServiceSubscription(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+
+		// Parse the request body.
+		request := &api.ServiceUnsubscriptionRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			jsonError(w, err)
+			return
+		}
+
+		// Get subscription_id from the request body
+		subscriptionID := request.SubscriptionID
+		if subscriptionID == "" {
+			jsonError(w, fmt.Errorf("%w: request missing subscription_id parameter", ErrUnexpected))
+			return
+		}
+
+		glog.Info("Request to delete service subscription: ", subscriptionID)
+
+		// Check if the user who request the deletion of the subscription is authorized
+		if err := authorizeUnsubscription(configuration, r); err != nil {
+			jsonError(w, err)
+			return
+		}
+		glog.Info("user authorized to delete the service subscription")
+
+		// TODO: delete the subscription from the database
+		// TODO: delete the service bindings assosciated to the service_id and plan_id extracted by the subscription_id from the cluster
+		// TODO: delete the service instances assosciated to the service_id and plan_id extracted by the subscription_id from the cluster
+	}
+}
+
+func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		// TODO: implement function
 	}
 }
