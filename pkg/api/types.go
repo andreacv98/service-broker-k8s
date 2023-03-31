@@ -250,10 +250,22 @@ type ServiceUnsubscriptionResponse struct {
 
 // PeeringRequest is the request to create a peering.
 type PeeringRequest struct {
-	// TODO: add fields
+	// ClusterID is the ID of the cluster to peer with.
+	ClusterID string `json:"cluster_id"`
+	// ClusterName is the name of the cluster to peer with.
+	ClusterName string `json:"cluster_name"`
+	// AuthURL is the Liqo peering auth URL.
+	AuthURL string `json:"auth_url"`
+	// Token is the Liqo peering token.
+	Token string `json:"token"`
+	// PeeringPolicy is the Liqo peering policy.
+	PeeringPolicy string `json:"peering_policy"`
+	// Namespace is the namespace to create and offload to customer.
+	Namespace string `json:"namespace"`
 }
 
 // PeeringResponse is the response to create a peering.
 type PeeringResponse struct {
-	// TODO: add fields
+	// EffectiveNamespace is the effective namespace to offload to customer as combination of namespace and tenant id.
+	EffectiveNamespace string `json:"effective_namespace"`
 }

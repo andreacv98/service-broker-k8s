@@ -80,6 +80,30 @@ rules:
   verbs:
   - "*"
 ---
+# ClusterRole to access Liqo resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: liqo
+rules:
+- apiGroups:
+  - discovery.liqo.io
+  resources:
+  - foreignclusters
+  - foreignclusters/status
+  - foreignclusters/finalizers
+  - offloadingnamespaces
+  - offloadingnamespaces/status
+  - offloadingnamespaces/finalizers
+  - virtualnodes
+  - virtualnodes/status
+  - virtualnodes/finalizers
+  - virtualnetworkconfigs
+  - virtualnetworkconfigs/status
+  - virtualnetworkconfigs/finalizers
+  verbs:
+  - "*"
+---
 # Broker requires its role to be bound to its service account.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -89,6 +113,20 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: service-broker
+subjects:
+- kind: ServiceAccount
+  name: service-broker
+  namespace: default
+---
+# ClusterRoleBinding to access Liqo resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: liqo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: liqo
 subjects:
 - kind: ServiceAccount
   name: service-broker

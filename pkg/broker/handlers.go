@@ -27,6 +27,7 @@ import (
 	"github.com/couchbase/service-broker/pkg/api"
 	"github.com/couchbase/service-broker/pkg/config"
 	"github.com/couchbase/service-broker/pkg/errors"
+	"github.com/couchbase/service-broker/pkg/liqo"
 	"github.com/couchbase/service-broker/pkg/operation"
 	"github.com/couchbase/service-broker/pkg/provisioners"
 	"github.com/couchbase/service-broker/pkg/registry"
@@ -1513,5 +1514,48 @@ func handleDeleteServiceSubscription(configuration *ServerConfiguration) func(ht
 func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 		// TODO: implement function
+		glog.Info("handlePeering")
+		request := &api.PeeringRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			glog.Info("Error in jsonRequest: ", err)
+			jsonError(w, err)
+			return
+		}
+		glog.Info("Request to create peering: ", request)
+
+		ctx := context.Background()
+
+		liqo, err := liqo.Create("liqo")
+		if err != nil {
+			glog.Info("Error in liqo.Create: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		fc, err := liqo.Peer(
+			ctx,
+			request.ClusterID,
+			request.Token,
+			request.AuthURL,
+			request.ClusterName,
+		)
+		if err != nil {
+			glog.Info("Error in liqo.Peer: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		glog.Info("fc: ", fc)
+
+		// Wait for the foreign cluster to be ready
+		if err:= liqo.Wait(ctx, &fc.Spec.ClusterIdentity); err != nil {
+			glog.Info("Error in waiting for foreign cluster to be ready: ", err)
+			jsonError(w, err)
+			return
+		}
+		glog.Info("Foreign cluster ready")
+		glog.Info("Peering successfully completed")
+
+		liqo.OffloadNamespace(ctx, request.Namespace, &fc.Spec.ClusterIdentity, request.PeeringPolicy)
 	}
 }
