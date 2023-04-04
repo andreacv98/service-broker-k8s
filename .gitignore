@@ -15,8 +15,7 @@
 /debian/couchbase-service-broker*
 /debian/files
 
-/example-liqo/customer
-/example-liqo/service-provider
+*.kconf
 
 # IDEs
 /.idea
