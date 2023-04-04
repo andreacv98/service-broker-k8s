@@ -2,6 +2,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: postgres  # Sets Deployment name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres
+          ports:
+            - containerPort: 5432  # Exposes container port
+          envFrom:
+            - configMapRef:
+                name: postgres-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: service-broker
   labels:
     app: service-broker
@@ -15,6 +38,10 @@ spec:
       labels:
         app: service-broker
     spec:
+      initContainers:
+      - name: init-cont
+        image: busybox:1.31
+        command: ['sh', '-c', 'echo -e "Checking for the availability of PostgresSQL Server deployment"; while ! nc -z postgres 5432; do sleep 1; printf "-"; done; echo -e "  >> MySQL DB Server has started";']
       containers:
       - args:
         - -logtostderr
@@ -30,7 +57,7 @@ spec:
         - -tls-certificate=/var/run/secrets/service-broker/tls-certificate
         - -tls-private-key=/var/run/secrets/service-broker/tls-private-key
         name: service-broker
-        image: localhost:5001/service-broker:latest
+        image: andreacv98/service-broker:latest
         env:
         - name: NAMESPACE
           value: default
@@ -56,39 +83,3 @@ data:
   POSTGRES_DB: postgresdb
   POSTGRES_USER: admin
   POSTGRES_PASSWORD: psltest
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: postgres  # Sets Deployment name
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres
-  template:
-    metadata:
-      labels:
-        app: postgres
-    spec:
-      containers:
-        - name: postgres
-          image: postgres
-          ports:
-            - containerPort: 5432  # Exposes container port
-          envFrom:
-            - configMapRef:
-                name: postgres-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres # Sets service name
-  labels:
-    app: postgres # Labels and Selectors
-spec:
-  type: NodePort # Sets service type
-  ports:
-    - port: 5432 # Sets port to run the postgres application
-  selector:
-    app: postgres
