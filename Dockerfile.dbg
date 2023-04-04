@@ -1,0 +1,15 @@
+FROM golang AS build
+ENV GOPATH /go
+WORKDIR /service-broker
+COPY . .
+RUN CGO_ENABLED=0 go get -ldflags "-s -w -extldflags '-static'" github.com/go-delve/delve/cmd/dlv
+RUN CGO_ENABLED=0 go install -ldflags "-s -w -extldflags '-static'" github.com/go-delve/delve/cmd/dlv
+RUN CGO_ENABLED=0 go build -gcflags "all=-N -l" -o ./app ./cmd/broker
+
+FROM alpine
+WORKDIR /
+COPY . .
+COPY --from=build /go/bin/dlv dlv
+COPY --from=build /service-broker/app app
+#ENTRYPOINT [ "/dlv" , "--listen=:40000", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/app", "--", ]
+ENTRYPOINT [ "/bin/sh", "-c", "/dlv --listen=:40000 --headless=true --api-version=2 --accept-multiclient exec /app -- $@" ]
