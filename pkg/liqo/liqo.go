@@ -47,7 +47,11 @@ func Create(namespaceLiqo string) (*Liqo, error) {
 
 	err = discoveryv1alpha1.AddToScheme(scheme.Scheme)
 	if err != nil {
-		panic(err)
+		return nil, err
+	}
+	err = offloadingv1alpha1.AddToScheme(scheme.Scheme)
+	if err != nil {
+		return nil, err
 	}
 
 	CRClient, err := client.New(cfg, client.Options{})

@@ -194,6 +194,18 @@ func authorizeSubscription(c *ServerConfiguration, r *http.Request, serviceID, p
 	return nil
 }
 
+func authorizePeering(c *ServerConfiguration, r *http.Request) error {
+	// Extract token from request
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
+	// Check if the user is a manager
+	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+		return err
+	}
+	glog.Info("User is manager")
+	return nil
+}
+
 func authorizeUnsubscription(c *ServerConfiguration, r *http.Request) error {
 	// Extract token from request
 	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
@@ -1513,7 +1525,6 @@ func handleDeleteServiceSubscription(configuration *ServerConfiguration) func(ht
 
 func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-		// TODO: implement function
 		glog.Info("handlePeering")
 		request := &api.PeeringRequest{}
 		if err := jsonRequest(r, request); err != nil {
@@ -1522,6 +1533,13 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			return
 		}
 		glog.Info("Request to create peering: ", request)
+
+		err := authorizePeering(configuration, r)
+		if err != nil {
+			glog.Info("Error in authorizePeering: ", err)
+			jsonError(w, err)
+			return
+		}
 
 		ctx := context.Background()
 
@@ -1556,6 +1574,18 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 		glog.Info("Foreign cluster ready")
 		glog.Info("Peering successfully completed")
 
-		liqo.OffloadNamespace(ctx, request.Namespace, &fc.Spec.ClusterIdentity, request.PeeringPolicy)
+		ns, nso, err := liqo.OffloadNamespace(ctx, request.Namespace, &fc.Spec.ClusterIdentity, request.PeeringPolicy)
+		if err != nil {
+			glog.Info("Error in liqo.OffloadNamespace: ", err)
+			jsonError(w, err)
+			return
+		}
+		glog.Info("ns: ", ns)
+		glog.Info("nso: ", nso)
+
+		response := &api.PeeringResponse{
+			EffectiveNamespace: ns.Name,
+		}
+		JSONResponse(w, http.StatusOK, response)
 	}
 }
