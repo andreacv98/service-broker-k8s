@@ -1,5 +1,15 @@
+#
+#  ---- Build image ----
+#
+FROM golang AS build
+WORKDIR /app
+COPY . .
+RUN make build
+#
+# ---- Release image ----
+#
 FROM scratch
-
-ADD build/bin/broker /usr/local/bin/broker
-
+# Copy our static executable
+WORKDIR /usr/local/bin
+COPY --from=build /app/build/bin .
 ENTRYPOINT ["/usr/local/bin/broker"]
