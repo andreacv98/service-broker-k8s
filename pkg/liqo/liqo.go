@@ -10,7 +10,7 @@ import (
 	discoveryv1alpha1 "github.com/liqotech/liqo/apis/discovery/v1alpha1"
 	offloadingv1alpha1 "github.com/liqotech/liqo/apis/offloading/v1alpha1"
 	"github.com/liqotech/liqo/pkg/consts"
-	"github.com/liqotech/liqo/pkg/discovery"
+	discovery "github.com/liqotech/liqo/pkg/discovery"
 	"github.com/liqotech/liqo/pkg/utils"
 	authenticationtokenutils "github.com/liqotech/liqo/pkg/utils/authenticationtoken"
 	fcutils "github.com/liqotech/liqo/pkg/utils/foreignCluster"
@@ -132,6 +132,113 @@ func (liqo *Liqo) enforceForeignCluster(ctx context.Context, ClusterID, ClusterT
 	glog.Info("ForeignCluster created: ", fc)
 
 	return fc, err
+}
+
+func (liqo *Liqo) GetForeignCluster(ctx context.Context, ClusterID string) (*discoveryv1alpha1.ForeignCluster, error) {
+	fc, err := foreigncluster.GetForeignClusterByID(ctx, liqo.CRClient, ClusterID)
+	if err != nil {
+		if(kerrors.IsNotFound(err)){
+			glog.Info("ForeignCluster not found")
+			return nil, nil
+		}else{
+			glog.Info("Error while getting ForeignCluster: ", err )
+			return nil, err
+		}
+	}
+	return fc, nil
+}
+
+func (liqo *Liqo) CheckIfReady(ctx context.Context, remoteClusterID *discoveryv1alpha1.ClusterIdentity) (bool, error) {
+
+	// Check if the remote cluster is authenticated.
+	ready, err := liqo.checkAuth(ctx, remoteClusterID)
+	if err != nil {
+		return false, err
+	}
+	if !ready {
+		glog.Info("Cluster ", remoteClusterID.ClusterName, " is not ready yet cause is not authenticated")
+		return false, nil
+	}
+
+	// Check if the remote cluster is ready to accept incoming peering.
+	ready, err = liqo.checkOutgoingPeering(ctx, remoteClusterID)
+	if err != nil {
+		return false, err
+	}
+	if !ready {
+		glog.Info("Cluster ", remoteClusterID.ClusterName, " is not ready yet cause outgoing peering is not enabled")
+		return false, nil
+	}
+	
+	// Check if the remote cluster network is ready.
+	ready, err = liqo.checkNetwork(ctx, remoteClusterID)
+	if err != nil {
+		return false, err
+	}
+	if !ready {
+		glog.Info("Cluster ", remoteClusterID.ClusterName, " is not ready yet cause network is not ready")
+		return false, nil
+	}
+
+	// Check if the virtual node is ready.
+	ready, err = liqo.checkNode(ctx, remoteClusterID)
+	if err != nil {
+		return false, err
+	}
+	if !ready {
+		glog.Info("Cluster ", remoteClusterID.ClusterName, " is not ready yet cause virtual node is not ready")
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (liqo *Liqo) checkAuth(ctx context.Context, remoteClusterID *discoveryv1alpha1.ClusterIdentity) (bool, error) {
+	remName := remoteClusterID.ClusterName
+	glog.Info("Checking authentication to the remote cluster ", remName)
+	// Get foreign cluster
+	fc, err := foreigncluster.GetForeignClusterByID(ctx, liqo.CRClient, remoteClusterID.ClusterID)
+	if err != nil {
+		return false, err
+	}
+	// Check if the authentication is enabled
+	return fcutils.IsAuthenticated(fc), nil
+}
+
+func (liqo *Liqo) checkOutgoingPeering(ctx context.Context, remoteClusterID *discoveryv1alpha1.ClusterIdentity) (bool, error) {
+	remName := remoteClusterID.ClusterName
+	glog.Info("Checking outgoing peering to the remote cluster ", remName)
+	// Get foreign cluster
+	fc, err := foreigncluster.GetForeignClusterByID(ctx, liqo.CRClient, remoteClusterID.ClusterID)
+	if err != nil {
+		return false, err
+	}
+	// Check if the peering is enabled
+	return fcutils.IsOutgoingJoined(fc), nil
+}
+
+func (liqo *Liqo) checkNetwork(ctx context.Context, remoteClusterID *discoveryv1alpha1.ClusterIdentity) (bool, error) {
+	remName := remoteClusterID.ClusterName
+	glog.Info("Checking network to the remote cluster ", remName)
+	// Get foreign cluster
+	fc, err := foreigncluster.GetForeignClusterByID(ctx, liqo.CRClient, remoteClusterID.ClusterID)
+	if err != nil {
+		return false, err
+	}
+	// Check if the network is ready
+	return fcutils.IsNetworkingEstablished(fc), nil
+}
+
+func (liqo *Liqo) checkNode(ctx context.Context, remoteClusterID *discoveryv1alpha1.ClusterIdentity) (bool, error) {
+	remName := remoteClusterID.ClusterName
+	glog.Info("Checking node to the remote cluster ", remName)
+	// Get the virtual node
+	node, err := getters.GetNodeByClusterID(ctx, liqo.CRClient, remoteClusterID)
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	// Check if the node is ready
+	return utils.IsNodeReady(node), nil
 }
 
 // Wait waits for the peering to the remote cluster to be fully enabled.
@@ -260,7 +367,20 @@ func (liqo *Liqo) OffloadNamespace(ctx context.Context, namespace string, remote
 		ObjectMeta: metav1.ObjectMeta{Name: consts.DefaultNamespaceOffloadingName, Namespace: name},
 		Spec: offloadingv1alpha1.NamespaceOffloadingSpec{
 			NamespaceMappingStrategy: nms, PodOffloadingStrategy: pos,
-			ClusterSelector: corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{}}},
+			ClusterSelector: corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{
+					{
+						MatchExpressions: []corev1.NodeSelectorRequirement{
+							{
+								Key:      consts.RemoteClusterID,
+								Operator: corev1.NodeSelectorOpIn,
+								Values:   []string{remId},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	err = liqo.CRClient.Create(ctx, nsoff); if err != nil {

@@ -262,6 +262,8 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.POST("/service_subscription", handleServiceSubscription(configuration))
 	router.DELETE("/service_subscription", handleDeleteServiceSubscription(configuration))
 	router.POST("/peering", handlePeering(configuration))
+	router.GET("/peering", handleCheckPeeringStatus(configuration))
+	router.POST("/peering/namespaceoffloading", handleNamespaceOffloading(configuration))
 
 	return &openServiceBrokerHandler{
 		Handler:       router,

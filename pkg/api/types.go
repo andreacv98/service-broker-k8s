@@ -258,14 +258,36 @@ type PeeringRequest struct {
 	AuthURL string `json:"auth_url"`
 	// Token is the Liqo peering token.
 	Token string `json:"token"`
-	// PeeringPolicy is the Liqo peering policy.
-	PeeringPolicy string `json:"peering_policy"`
-	// Namespace is the namespace to create and offload to customer.
-	Namespace string `json:"namespace"`
 }
 
 // PeeringResponse is the response to create a peering.
-type PeeringResponse struct {
+type PeeringResponse struct {	
+}
+
+// CheckPeeringStatusRequest is the request to check a peering.
+type CheckPeeringStatusRequest struct {
+	// ClusterID is the ID of the cluster to check.
+	ClusterID string `json:"cluster_id"`
+}
+
+// CheckPeeringStatusResponse is the response to check a peering.
+type CheckPeeringStatusResponse struct {
+	// PeeringStatus is the status of the peering.
+	Ready bool `json:"ready"`
+}
+
+type NamespaceOffloadingRequest struct {
+	// ClusterID is the ID of the cluster to offload to.
+	ClusterID string `json:"cluster_id"`
+	// Namespace is the namespace to create and offload to customer.
+	Namespace string `json:"namespace"`
+	// PeeringPolicy is the Liqo peering policy.
+	PeeringPolicy string `json:"peering_policy"`
+	// UserID is the ID of the user to offload to customer.
+	UserID string `json:"user_id"`
+}
+
+type NamespaceOffloadingResponse struct {
 	// EffectiveNamespace is the effective namespace to offload to customer as combination of namespace and tenant id.
 	EffectiveNamespace string `json:"effective_namespace"`
 }

@@ -1476,7 +1476,7 @@ func handleServiceSubscription(configuration *ServerConfiguration) func(http.Res
 
 		// Get the purchase id
 		var subscriptionID int
-		row.Scan(&subscriptionID)
+		err = row.Scan(&subscriptionID)
 		if err != nil {
 			jsonError(w, err)
 			return
@@ -1532,8 +1532,10 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			jsonError(w, err)
 			return
 		}
+
 		glog.Info("Request to create peering: ", request)
 
+		// Check if the user who request the peering is authorized
 		err := authorizePeering(configuration, r)
 		if err != nil {
 			glog.Info("Error in authorizePeering: ", err)
@@ -1541,8 +1543,7 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			return
 		}
 
-		ctx := context.Background()
-
+		// Create the liqo struct
 		liqo, err := liqo.Create("liqo")
 		if err != nil {
 			glog.Info("Error in liqo.Create: ", err)
@@ -1550,6 +1551,9 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			return
 		}
 
+		ctx := context.Background()
+
+		// Start liqo peering
 		fc, err := liqo.Peer(
 			ctx,
 			request.ClusterID,
@@ -1562,18 +1566,148 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			jsonError(w, err)
 			return
 		}
-
 		glog.Info("fc: ", fc)
+		glog.Info("Peering request successfully completed")
 
-		// Wait for the foreign cluster to be ready
-		if err:= liqo.Wait(ctx, &fc.Spec.ClusterIdentity); err != nil {
-			glog.Info("Error in waiting for foreign cluster to be ready: ", err)
+		response := &api.PeeringResponse{}
+		JSONResponse(w, http.StatusAccepted, response)
+	}
+}
+
+func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		glog.Info("handleCheckPeeringStatus")
+		request := &api.CheckPeeringStatusRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			glog.Info("Error in jsonRequest: ", err)
 			jsonError(w, err)
 			return
 		}
-		glog.Info("Foreign cluster ready")
-		glog.Info("Peering successfully completed")
 
+		glog.Info("Request to check peering status: ", request)
+
+		// No particolar authorization is required to check the peering status
+
+		// Create the liqo struct
+		liqo, err := liqo.Create("liqo")
+		if err != nil {
+			glog.Info("Error in liqo.Create: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		ctx := context.Background()
+
+		// Check if the peering has been already established
+		fc, err := liqo.GetForeignCluster(ctx, request.ClusterID)
+		if err != nil {
+			glog.Info("Error in liqo.GetForeignCluster: ", err)
+			jsonError(w, err)
+			return
+		}
+		if fc == nil {
+			glog.Info("Foreign cluster not found")
+			JSONResponse(w, http.StatusNotFound, nil)
+			return
+		}
+
+		// Check if the peering is completed
+		ready, err := liqo.CheckIfReady(ctx, &fc.Spec.ClusterIdentity)
+		if err != nil {
+			glog.Info("Error in liqo.CheckIfReady: ", err)
+			jsonError(w, err)
+			return
+		}
+		if !ready {
+			glog.Info("Foreign cluster not ready")
+			JSONResponse(w, http.StatusProcessing, nil)
+			return
+		} else {
+			glog.Info("Foreign cluster ready")
+			JSONResponse(w, http.StatusOK, nil)
+			return
+		}
+	}	
+}
+
+func handleNamespaceOffloading(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		glog.Info("handleNamespaceOffloading")
+		request := &api.NamespaceOffloadingRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			glog.Info("Error in jsonRequest: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		// Check if the user who request the namespace offloading is authorized
+		err := authorizePeering(configuration, r)
+		if err != nil {
+			glog.Info("Error in authorizePeering: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		// Check if userid is valid
+		if request.UserID == "" {
+			glog.Info("Error in request.UserID: ", request.UserID)
+			jsonError(w, fmt.Errorf("%w: request missing user_id parameter", ErrUnexpected))
+			return
+		}
+		ctx := context.Background()
+		client := configuration.AdvancedToken.KeycloakConfiguration.Client
+		clientToken, err := client.LoginClient(
+			ctx,
+			configuration.AdvancedToken.KeycloakConfiguration.ClientID,
+			configuration.AdvancedToken.KeycloakConfiguration.ClientSecret,
+			configuration.AdvancedToken.KeycloakConfiguration.Realm,
+		)
+		if err != nil {
+			glog.Info("Error in client.LoginClient: ", err)
+			jsonError(w, err)
+			return
+		}
+		client.GetUserByID(
+			ctx,
+			clientToken.AccessToken,
+			configuration.AdvancedToken.KeycloakConfiguration.Realm,
+			request.UserID,
+		)
+		glog.Info("User is valid")
+
+		// Create the liqo struct
+		liqo, err := liqo.Create("liqo")
+		if err != nil {
+			glog.Info("Error in liqo.Create: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		// Check if foreign cluster where namespace will be offloaded to is ready
+		fc, err := liqo.GetForeignCluster(ctx, request.ClusterID)
+		if err != nil {
+			glog.Info("Error in liqo.GetForeignCluster: ", err)
+			jsonError(w, err)
+			return
+		}
+		if fc == nil {
+			glog.Info("Foreign cluster not found")
+			JSONResponse(w, http.StatusNotFound, nil)
+			return
+		}
+		ready, err := liqo.CheckIfReady(ctx, &fc.Spec.ClusterIdentity)
+		if err != nil {
+			glog.Info("Error in liqo.CheckIfReady: ", err)
+			jsonError(w, err)
+			return
+		}
+		if !ready {
+			glog.Info("Foreign cluster not ready")
+			JSONResponse(w, http.StatusProcessing, nil)
+			return
+		}
+
+		// Create and offload the namespace
 		ns, nso, err := liqo.OffloadNamespace(ctx, request.Namespace, &fc.Spec.ClusterIdentity, request.PeeringPolicy)
 		if err != nil {
 			glog.Info("Error in liqo.OffloadNamespace: ", err)
@@ -1583,7 +1717,20 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 		glog.Info("ns: ", ns)
 		glog.Info("nso: ", nso)
 
-		response := &api.PeeringResponse{
+		// Insert into the database the namespace and the userid
+		db := configuration.AdvancedToken.DatabaseConfiguration.Db
+		row := db.QueryRow("INSERT INTO users_clusters (namespace, userid) VALUES ($1, $2) RETURNING id", ns.Name, request.UserID)
+		// Get the purchase id
+		var userClusterID int
+		err = row.Scan(&userClusterID)
+		if err != nil {
+			jsonError(w, err)
+			return
+		}
+		glog.Info("UserClusterID: ", userClusterID)
+
+		// Return the namespace name
+		response := &api.NamespaceOffloadingResponse{
 			EffectiveNamespace: ns.Name,
 		}
 		JSONResponse(w, http.StatusOK, response)
