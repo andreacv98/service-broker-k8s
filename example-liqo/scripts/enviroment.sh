@@ -1,6 +1,11 @@
 #!/bin/sh
 set -o errexit
 
+# Increasing inotify resources temporaly
+echo "Increasing inotify resources temporaly..."
+sudo sysctl fs.inotify.max_user_watches=524288
+sudo sysctl fs.inotify.max_user_instances=512
+
 echo "Creating kind clusters..."
 echo "Creating service-provider cluster..."
 # create a cluster with the local registry enabled in containerd
