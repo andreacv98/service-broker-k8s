@@ -12,4 +12,4 @@ COPY . .
 COPY --from=build /go/bin/dlv dlv
 COPY --from=build /service-broker/app app
 #ENTRYPOINT [ "/dlv" , "--listen=:40000", "--headless=true", "--api-version=2", "--accept-multiclient", "exec", "/app", "--", ]
-ENTRYPOINT [ "/bin/sh", "-c", "/dlv --listen=:40000 --headless=true --continue --api-version=2 --accept-multiclient exec /app -- $@" ]
+ENTRYPOINT [ "/bin/sh", "-c", "/dlv --listen=:2345 --headless=true --continue --api-version=2 --accept-multiclient exec /app -- $@" ]
