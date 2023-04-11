@@ -130,6 +130,11 @@ func populateDatabase(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+	// Create peering table if it doesn't exist
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS peering (id SERIAL PRIMARY KEY, users_clusters_id INTEGER, cluster_id TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT, FOREIGN KEY (users_clusters_id) REFERENCES users_clusters(id))")
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

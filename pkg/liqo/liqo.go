@@ -2,6 +2,7 @@ package liqo
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -28,8 +29,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	
-    "k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/labels"
 )
 
 type Liqo struct {
@@ -64,6 +64,78 @@ func Create(namespaceLiqo string) (*Liqo, error) {
 	glog.Info("Using namespace: ", LiqoNamespace)
 
 	return &Liqo{CRClient: CRClient, Namespace: LiqoNamespace}, nil
+}
+
+func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID string, peeringid int, db *sql.DB) {
+	
+
+	// Start peering
+	fc, err := liqo.Peer(ctx, ClusterID, ClusterToken, ClusterAuthURL, ClusterName)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while peering: %s", err)
+		glog.Info(strErr)
+		// Set ready to false and register error into db
+		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
+		if err != nil {
+			glog.Info("Error while updating peering status: ", err)
+		}
+		return
+	}
+	glog.Info("Peering started")
+	// Wait for the peering to be established
+	err = liqo.Wait(ctx, &fc.Spec.ClusterIdentity)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while waiting for peering: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, err.Error(), peeringid)
+		if err != nil {
+			glog.Info("Error while updating peering status: ", err)
+		}
+		return
+	}
+	glog.Info("Peering established")
+	
+	// Create and offload namespace
+	namespace := ClusterName + "-" + ClusterID
+	_, _, err = liqo.OffloadNamespace(ctx, namespace, &fc.Spec.ClusterIdentity, OffloadingPolicy)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while offloading namespace: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
+		if err != nil {
+			glog.Info("Error while updating peering status: ", err)
+		}
+		return
+	}
+	glog.Info("Namespace offloaded")
+
+	// Register users_clusters into db and get the ID
+	row := db.QueryRow("INSERT INTO users_clusters (userid, namespace) VALUES ($1, $2) RETURNING id", UserID, namespace)
+	glog.Info("Users_clusters registered")
+	var users_clusters_id int
+	err = row.Scan(&users_clusters_id)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while scanning users_clusters_id: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
+		if err != nil {
+			glog.Info("Error while updating peering status: ", err)
+		}
+		return
+	}
+	glog.Info("Users_clusters_id: ", users_clusters_id)
+
+	// Set users_clusters into peering table and set ready to true
+	_, err = db.Exec("UPDATE peering SET ready = $1, users_clusters_id = $2 WHERE id = $3", true, users_clusters_id, peeringid)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while updating peering status: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
+		if err != nil {
+			glog.Info("Error while updating peering status: ", err)
+		}
+		return
+	}
 }
 
 
@@ -321,9 +393,8 @@ func (liqo *Liqo) waitForNode(ctx context.Context, remoteClusterID *discoveryv1a
 
 // OffloadNamespace offloads a new namespace to the remote cluster.
 func (liqo *Liqo) OffloadNamespace(ctx context.Context, namespace string, remoteClusterID *discoveryv1alpha1.ClusterIdentity, offloadingPolicy string) (*corev1.Namespace, *offloadingv1alpha1.NamespaceOffloading, error) {
-	remId := remoteClusterID.ClusterID
 	// Define a new namespace
-	name := namespace+"-"+remId
+	name := namespace
 
 	// Retrieve list of namespaces by name of the namespace
 	nsList := &corev1.NamespaceList{}
@@ -374,7 +445,7 @@ func (liqo *Liqo) OffloadNamespace(ctx context.Context, namespace string, remote
 							{
 								Key:      consts.RemoteClusterID,
 								Operator: corev1.NodeSelectorOpIn,
-								Values:   []string{remId},
+								Values:   []string{remoteClusterID.ClusterID},
 							},
 						},
 					},

@@ -258,36 +258,34 @@ type PeeringRequest struct {
 	AuthURL string `json:"auth_url"`
 	// Token is the Liqo peering token.
 	Token string `json:"token"`
+	// OffloadingPolicy is the Liqo offloading policy.
+	OffloadingPolicy string `json:"offloading_policy"`
+	// UserID is the ID of the user to create the peering for.
+	UserID string `json:"user_id"`
 }
 
 // PeeringResponse is the response to create a peering.
-type PeeringResponse struct {	
+type PeeringResponse struct {
+	// PeeringID is the ID of the peering.
+	PeeringID string `json:"peering_id"`
 }
 
 // CheckPeeringStatusRequest is the request to check a peering.
 type CheckPeeringStatusRequest struct {
-	// ClusterID is the ID of the cluster to check.
-	ClusterID string `json:"cluster_id"`
+	// PeeringID is the ID of the peering to check.
+	PeeringID string `json:"peering_id"`
 }
 
-// CheckPeeringStatusResponse is the response to check a peering.
-type CheckPeeringStatusResponse struct {
-	// PeeringStatus is the status of the peering.
-	Ready bool `json:"ready"`
-}
-
-type NamespaceOffloadingRequest struct {
-	// ClusterID is the ID of the cluster to offload to.
-	ClusterID string `json:"cluster_id"`
-	// Namespace is the namespace to create and offload to customer.
+// CheckPeeringStatusResponseNamespace is the response to check a peering when all went good.
+type CheckPeeringStatusResponseNamespace struct {
+	// Namespace is the name of the namespace offloaded to the remote cluster.
 	Namespace string `json:"namespace"`
-	// PeeringPolicy is the Liqo peering policy.
-	PeeringPolicy string `json:"peering_policy"`
-	// UserID is the ID of the user to offload to customer.
-	UserID string `json:"user_id"`
 }
 
-type NamespaceOffloadingResponse struct {
-	// EffectiveNamespace is the effective namespace to offload to customer as combination of namespace and tenant id.
-	EffectiveNamespace string `json:"effective_namespace"`
+// CheckPeeringStatusResponseNotReady is the response to check a peering when the peering is not ready.
+type CheckPeeringStatusResponseNotReady struct {
+	// Ready is the status of the peering.
+	Ready bool `json:"ready"`
+	// Error is the eventual error message.
+	Error string `json:"error"`
 }
