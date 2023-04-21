@@ -23,7 +23,6 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/Nerzal/gocloak/v13"
 	"github.com/couchbase/service-broker/pkg/broker"
 	"github.com/couchbase/service-broker/pkg/client"
 	"github.com/couchbase/service-broker/pkg/config"
@@ -136,25 +135,6 @@ func populateDatabase(db *sql.DB) error {
 		return err
 	}
 	return nil
-}
-
-func setupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm string) (*gocloak.GoCloak, error) {
-
-	var err error
-	var keycloakClient *gocloak.GoCloak
-
-	// Check Keycloak missing parameters
-	if stringKeycloakURL == "" || stringKeycloakClientID == "" || stringKeycloakClientSecret == "" || stringKeycloakRealm == "" {
-		glog.Fatal(fmt.Errorf("%w: Keycloak parameters are missing", ErrFatal))
-		os.Exit(errorCode)
-	}
-
-	// Create client
-	// Create client from AdvancedAuthentication.KeycloakConfiguration data
-	keycloakClient = gocloak.NewClient(stringKeycloakURL)
-	glog.Info("Created client: ", keycloakClient)
-
-	return keycloakClient, err
 }
 
 func main() {
@@ -361,14 +341,14 @@ func main() {
 		}
 
 		// Setup Keycloak
-		client, err := setupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm)
+		client, err := broker.SetupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm)
 		if err != nil {
 			glog.Fatal(err)
 			os.Exit(errorCode)
 		}
 
 		c.AdvancedToken = &broker.ServerConfigurationAdvancedToken{
-			DatabaseConfiguration: broker.DatabaseConfiguration{
+			DatabaseConfiguration: &broker.DatabaseConfiguration{
 				DbHost:     stringDbHost,
 				DbPort:     stringDbPort,
 				DbName:     stringDbName,
@@ -376,7 +356,7 @@ func main() {
 				DbPassword: stringDbPassword,
 				Db:         db,
 			},
-			KeycloakConfiguration: broker.KeycloakConfiguration{
+			KeycloakConfiguration: &broker.KeycloakConfiguration{
 				KeycloakURL:  stringKeycloakURL,
 				ClientID:     stringKeycloakClientID,
 				ClientSecret: stringKeycloakClientSecret,

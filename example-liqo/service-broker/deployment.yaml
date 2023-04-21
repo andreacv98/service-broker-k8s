@@ -67,6 +67,7 @@ spec:
           readOnly: true
         ports:
         - containerPort: 8443
+        - containerPort: 8080
       serviceAccountName: service-broker
       volumes:
       - name: secret-volume

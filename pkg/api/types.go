@@ -262,6 +262,8 @@ type PeeringRequest struct {
 	OffloadingPolicy string `json:"offloading_policy"`
 	// UserID is the ID of the user to create the peering for.
 	UserID string `json:"user_id"`
+	// Prefix namespace optionally used to create a namespace prefix.
+	PrefixNamespace string `json:"prefix_namespace"`
 }
 
 // PeeringResponse is the response to create a peering.
@@ -288,4 +290,20 @@ type CheckPeeringStatusResponseNotReady struct {
 	Ready bool `json:"ready"`
 	// Error is the eventual error message.
 	Error string `json:"error"`
+}
+
+// CreateCredentialsRequest is the request to add credentials to the server
+type CreateCredentialsRequest struct {
+	// OAuth2 server URL
+	AuthURL string `json:"auth_url"`
+	// Realm is the realm of the client
+	Realm string `json:"realm"`
+	// ClientID is the ID of the client
+	ClientID string `json:"client_id"`
+	// ClientSecret is the secret of the client
+	ClientSecret string `json:"client_secret"`
+}
+
+// CreateCredentialsResponse is the response to add credentials to the server
+type CreateCredentialsResponse struct {
 }

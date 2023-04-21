@@ -1573,6 +1573,7 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			request.ClusterName,
 			request.OffloadingPolicy,
 			request.UserID,
+			request.PrefixNamespace,
 			peeringid,
 			configuration.AdvancedToken.DatabaseConfiguration.Db,
 		)
@@ -1654,4 +1655,42 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 		}
 
 	}	
+}
+
+func handleCreateCredentials(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
+	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
+		glog.Info("handleCreateCredentials")
+		request := &api.CreateCredentialsRequest{}
+		if err := jsonRequest(r, request); err != nil {
+			glog.Info("Error in jsonRequest: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		glog.Info("Request to create credentials: ", request)		
+
+		// Create keycloak client
+		client, err := SetupKeycloak(request.AuthURL, request.ClientID, request.ClientSecret, request.Realm)
+		if err != nil {
+			glog.Info("Error in SetupKeycloak: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		if client == nil {
+			glog.Info("Client not created")
+			JSONResponse(w, http.StatusInternalServerError, "OIDC client not created")
+			return
+		}
+
+		// Set field of configuration keycloak
+		configuration.AdvancedToken.KeycloakConfiguration.KeycloakURL = request.AuthURL
+		configuration.AdvancedToken.KeycloakConfiguration.ClientID = request.ClientID
+		configuration.AdvancedToken.KeycloakConfiguration.ClientSecret = request.ClientSecret
+		configuration.AdvancedToken.KeycloakConfiguration.Realm = request.Realm
+		configuration.AdvancedToken.KeycloakConfiguration.Client = client
+
+		response := &api.CreateCredentialsResponse{}
+		JSONResponse(w, http.StatusCreated, response)
+	}
 }

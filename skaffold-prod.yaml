@@ -1,0 +1,25 @@
+apiVersion: skaffold/v4beta3
+kind: Config
+build:
+  artifacts:
+  - image: andreacv98/service-broker
+    docker:
+      dockerfile: Dockerfile
+    context: .
+    # Set tagPolicy to custom to use the tag latest
+  tagPolicy:
+    envTemplate:
+      template: "{{.IMAGE_NAME}}:latest"
+  local:
+    push: true
+manifests:
+  rawYaml:
+    - example-liqo/service-broker/configuration/servicebrokerconfiguration.yaml
+    - example-liqo/service-broker/service-account/service-account.yaml
+    - example-liqo/service-broker/service-account/croleNbinding.yaml
+    - example-liqo/service-broker/secret.yaml
+    - example-liqo/service-broker/deployment.yaml
+    - example-liqo/service-broker/service.yaml
+deploy:
+  statusCheckDeadlineSeconds: 300
+  kubectl: {}

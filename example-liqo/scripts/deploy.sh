@@ -2,7 +2,7 @@
 set -o errexit
 
 # delete liqooff namespace if already exists
-kubectl delete namespace liqooff --kubeconfig="$PWD/service-provider" --ignore-not-found=true
+# kubectl delete namespace liqooff --kubeconfig="$PWD/service-provider" --ignore-not-found=true
 
 # delete myapp namespace if already exists in customer cluster
 kubectl delete namespace myapp --kubeconfig="$PWD/customer" --ignore-not-found=true
@@ -17,22 +17,22 @@ kubectl create namespace myapp --kubeconfig="$PWD/customer"
 kubectl apply --kubeconfig="$PWD/customer" -f yaml/wordpress.yaml -n myapp
 
 # offload liqooff namespace to the second cluster
-liqoctl offload namespace liqooff --namespace-mapping-strategy EnforceSameName --pod-offloading-strategy Remote --kubeconfig="$PWD/service-provider"
+# liqoctl offload namespace liqooff --namespace-mapping-strategy EnforceSameName --pod-offloading-strategy Remote --kubeconfig="$PWD/service-provider"
 
 # move to parent directory
-cd ..
+# cd ..
 
 # build the service-broker
-make
+# make
 
 # build docker image
-docker build --build-arg namespace=service-broker -t service-broker:latest .
+# docker build --build-arg namespace=service-broker -t service-broker:latest .
 
 # tag the iamge to use the local registry
-docker tag service-broker:latest localhost:5001/service-broker:latest
+# docker tag service-broker:latest localhost:5001/service-broker:latest
 
 # push the image to the local registry
-docker push localhost:5001/service-broker:latest
+# docker push localhost:5001/service-broker:latest
 
 # delete the deployment if it exists
 kubectl delete --kubeconfig="$PWD/example-liqo/service-provider" --ignore-not-found=true -f example-liqo/service-broker/service-account/service-account.yaml -f example-liqo/service-broker/service-account/croleNbinding.yaml -f example-liqo/service-broker/secret.yaml -f example-liqo/service-broker/deployment.yaml -f example-liqo/service-broker/service.yaml

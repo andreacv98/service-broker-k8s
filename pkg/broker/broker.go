@@ -124,6 +124,13 @@ func handleAdvancedToken(c *ServerConfiguration, w http.ResponseWriter, r *http.
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
 
+	if client == nil {
+		glog.Info("Client is not set")
+		// AuthN & authZ not yet configured.
+		httpResponse(w, http.StatusUnauthorized)
+		return fmt.Errorf("%w: authN & authZ not yet configured", ErrRequestMalformed)
+	}
+
 	// Retrospect token.
 	retrospect, err := client.RetrospectToken(
 		ctx,
@@ -263,6 +270,7 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.DELETE("/service_subscription", handleDeleteServiceSubscription(configuration))
 	router.POST("/peering", handlePeering(configuration))
 	router.GET("/peering", handleCheckPeeringStatus(configuration))
+	router.POST("/auth/credentials", handleCreateCredentials(configuration))
 
 	return &openServiceBrokerHandler{
 		Handler:       router,
@@ -303,6 +311,12 @@ func (handler *openServiceBrokerHandler) ServeHTTP(w http.ResponseWriter, r *htt
 	config.Lock()
 	defer config.Unlock()
 
+	// Set CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Broker-Api-Version, X-Broker-Api-Originating-Identity")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+
 	// Use the wrapped writer so we can capture the status code etc.
 	writer := &responseWriter{
 		writer: w,
@@ -329,7 +343,7 @@ func (handler *openServiceBrokerHandler) ServeHTTP(w http.ResponseWriter, r *htt
 	}
 
 	// Ignore security checks for the readiness handler
-	if r.URL.Path != "/readyz" {
+	if r.URL.Path != "/readyz" && r.URL.Path != "/auth/credentials" {
 		// Process headers, API versions, content types.
 		if err := handleRequestHeaders(handler.configuration, writer, r); err != nil {
 			glog.V(log.LevelDebug).Info(err)
@@ -352,10 +366,10 @@ type ServerConfigurationBasicAuth struct {
 
 type ServerConfigurationAdvancedToken struct {
 	// Database configuration
-	DatabaseConfiguration DatabaseConfiguration
+	DatabaseConfiguration *DatabaseConfiguration
 
 	// Keycloak configuration
-	KeycloakConfiguration KeycloakConfiguration
+	KeycloakConfiguration *KeycloakConfiguration
 }
 
 type DatabaseConfiguration struct {
@@ -431,9 +445,10 @@ func ConfigureServer(clients client.Clients, configuration *ServerConfiguration)
 
 func RunServer(configuration *ServerConfiguration) error {
 	// Start the server.
+	handler := NewOpenServiceBrokerHandler(configuration)
 	server := &http.Server{
 		Addr:    ":8443",
-		Handler: NewOpenServiceBrokerHandler(configuration),
+		Handler: handler,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{
 				configuration.Certificate,
@@ -441,5 +456,19 @@ func RunServer(configuration *ServerConfiguration) error {
 		},
 	}
 
-	return server.ListenAndServeTLS("", "")
+	// Start HTTP server
+	serverHttp := &http.Server{
+		Addr:    ":8080",
+		Handler: handler,
+	}
+	
+	err := serverHttp.ListenAndServe()
+	if err != nil {
+		return err
+	}
+	err = server.ListenAndServeTLS("", "")
+	if err != nil {
+		return err
+	}
+	return nil
 }

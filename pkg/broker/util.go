@@ -15,12 +15,14 @@
 package broker
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 
+	"github.com/Nerzal/gocloak/v13"
 	"github.com/couchbase/service-broker/pkg/api"
 	v1 "github.com/couchbase/service-broker/pkg/apis/servicebroker/v1alpha1"
 	"github.com/couchbase/service-broker/pkg/errors"
@@ -449,4 +451,25 @@ func deleteDirectoryInstance(namespace, instanceID string) {
 	}
 
 	_ = directory.Remove(instanceID)
+}
+
+func SetupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClientSecret, stringKeycloakRealm string) (*gocloak.GoCloak, error) {
+
+	var err error
+	var keycloakClient *gocloak.GoCloak
+
+	// Check Keycloak missing parameters
+	if stringKeycloakURL == "" || stringKeycloakClientID == "" || stringKeycloakClientSecret == "" || stringKeycloakRealm == "" {
+		return nil, nil
+	}
+
+	// Create client
+	// Create client from AdvancedAuthentication.KeycloakConfiguration data
+	keycloakClient = gocloak.NewClient(stringKeycloakURL)
+	(*keycloakClient).RestyClient().SetDebug(true)
+	(*keycloakClient).RestyClient().SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
+
+	glog.Info("Created client: ", keycloakClient)
+
+	return keycloakClient, err
 }

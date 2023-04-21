@@ -66,7 +66,7 @@ func Create(namespaceLiqo string) (*Liqo, error) {
 	return &Liqo{CRClient: CRClient, Namespace: LiqoNamespace}, nil
 }
 
-func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID string, peeringid int, db *sql.DB) {
+func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID, NamespacePrefix string, peeringid int, db *sql.DB) {
 	
 
 	// Start peering
@@ -95,8 +95,14 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 	}
 	glog.Info("Peering established")
 	
+	var namespace string
 	// Create and offload namespace
-	namespace := ClusterName + "-" + ClusterID
+	if NamespacePrefix == "" {
+		namespace = ClusterName + "-" + ClusterID
+	} else {
+		namespace = NamespacePrefix + "-" + ClusterID
+	}
+		
 	_, _, err = liqo.OffloadNamespace(ctx, namespace, &fc.Spec.ClusterIdentity, OffloadingPolicy)
 	if err != nil {
 		strErr := fmt.Sprintf("Error while offloading namespace: %s", err)
