@@ -31,6 +31,7 @@ import (
 	"github.com/couchbase/service-broker/pkg/client"
 	"github.com/couchbase/service-broker/pkg/config"
 	"github.com/couchbase/service-broker/pkg/log"
+	"github.com/rs/cors"
 
 	"github.com/golang/glog"
 	"github.com/julienschmidt/httprouter"
@@ -269,11 +270,11 @@ func NewOpenServiceBrokerHandler(configuration *ServerConfiguration) http.Handle
 	router.POST("/service_subscription", handleServiceSubscription(configuration))
 	router.DELETE("/service_subscription", handleDeleteServiceSubscription(configuration))
 	router.POST("/peering", handlePeering(configuration))
-	router.GET("/peering", handleCheckPeeringStatus(configuration))
+	router.GET("/peering/:peering_id", handleCheckPeeringStatus(configuration))
 	router.POST("/auth/credentials", handleCreateCredentials(configuration))
 
 	return &openServiceBrokerHandler{
-		Handler:       router,
+		Handler:       cors.Default().Handler(router),
 		configuration: configuration,
 	}
 }

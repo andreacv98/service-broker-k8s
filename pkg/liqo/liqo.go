@@ -67,11 +67,12 @@ func Create(namespaceLiqo string) (*Liqo, error) {
 }
 
 func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID, NamespacePrefix string, peeringid int, db *sql.DB) {
-	
 
+	glog.Info("Starting peering")
 	// Start peering
 	fc, err := liqo.Peer(ctx, ClusterID, ClusterToken, ClusterAuthURL, ClusterName)
 	if err != nil {
+		// Error while peering
 		strErr := fmt.Sprintf("Error while peering: %s", err)
 		glog.Info(strErr)
 		// Set ready to false and register error into db
@@ -85,6 +86,7 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 	// Wait for the peering to be established
 	err = liqo.Wait(ctx, &fc.Spec.ClusterIdentity)
 	if err != nil {
+		// Error while waiting for peering
 		strErr := fmt.Sprintf("Error while waiting for peering: %s", err)
 		glog.Info(strErr)
 		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, err.Error(), peeringid)
@@ -102,7 +104,8 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 	} else {
 		namespace = NamespacePrefix + "-" + ClusterID
 	}
-		
+	
+	glog.Info("Creating namespace")
 	_, _, err = liqo.OffloadNamespace(ctx, namespace, &fc.Spec.ClusterIdentity, OffloadingPolicy)
 	if err != nil {
 		strErr := fmt.Sprintf("Error while offloading namespace: %s", err)
@@ -115,24 +118,8 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 	}
 	glog.Info("Namespace offloaded")
 
-	// Register users_clusters into db and get the ID
-	row := db.QueryRow("INSERT INTO users_clusters (userid, namespace) VALUES ($1, $2) RETURNING id", UserID, namespace)
-	glog.Info("Users_clusters registered")
-	var users_clusters_id int
-	err = row.Scan(&users_clusters_id)
-	if err != nil {
-		strErr := fmt.Sprintf("Error while scanning users_clusters_id: %s", err)
-		glog.Info(strErr)
-		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
-		if err != nil {
-			glog.Info("Error while updating peering status: ", err)
-		}
-		return
-	}
-	glog.Info("Users_clusters_id: ", users_clusters_id)
-
-	// Set users_clusters into peering table and set ready to true
-	_, err = db.Exec("UPDATE peering SET ready = $1, users_clusters_id = $2 WHERE id = $3", true, users_clusters_id, peeringid)
+	// Set peering ready and effective namespace
+	_, err = db.Exec("UPDATE peering SET ready = $1, namespace = $2 WHERE id = $3", true, namespace, peeringid)
 	if err != nil {
 		strErr := fmt.Sprintf("Error while updating peering status: %s", err)
 		glog.Info(strErr)

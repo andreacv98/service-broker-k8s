@@ -466,7 +466,7 @@ func SetupKeycloak(stringKeycloakURL, stringKeycloakClientID, stringKeycloakClie
 	// Create client
 	// Create client from AdvancedAuthentication.KeycloakConfiguration data
 	keycloakClient = gocloak.NewClient(stringKeycloakURL)
-	(*keycloakClient).RestyClient().SetDebug(true)
+	//(*keycloakClient).RestyClient().SetDebug(true)
 	(*keycloakClient).RestyClient().SetTLSClientConfig(&tls.Config{InsecureSkipVerify: true})
 
 	glog.Info("Created client: ", keycloakClient)

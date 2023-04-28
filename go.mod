@@ -20,6 +20,7 @@ require (
 	github.com/liqotech/liqo v0.7.2
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-sqlite3 v1.14.16
+	github.com/rs/cors v1.9.0
 	k8s.io/api v0.26.3
 	k8s.io/apimachinery v0.26.3
 	k8s.io/client-go v0.26.3

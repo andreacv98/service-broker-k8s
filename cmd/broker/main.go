@@ -119,18 +119,13 @@ func setupDatabase(stringDbHost, stringDbPort, stringDbUser, stringDbPassword, s
 
 func populateDatabase(db *sql.DB) error {
 	var err error
-	// Create users table if it doesn't exist with primary key auto increment
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users_clusters (id SERIAL PRIMARY KEY, userid TEXT NOT NULL, namespace TEXT NOT NULL)")
-	if err != nil {
-		return err
-	}
 	// Create bought services and plans table with foreign key to users table if it doesn't exist
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, users_clusters_id INTEGER NOT NULL, service_id TEXT NOT NULL, plan_id TEXT NOT NULL, FOREIGN KEY (users_clusters_id) REFERENCES users_clusters(id))")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS bought_services (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, service_id TEXT NOT NULL, plan_id TEXT NOT NULL)")
 	if err != nil {
 		return err
 	}
 	// Create peering table if it doesn't exist
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS peering (id SERIAL PRIMARY KEY, users_clusters_id INTEGER, cluster_id TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT, FOREIGN KEY (users_clusters_id) REFERENCES users_clusters(id))")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS peering (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, namespace TEXT NOT NULL, cluster_id TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT)")
 	if err != nil {
 		return err
 	}

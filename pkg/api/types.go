@@ -113,6 +113,7 @@ type CreateServiceInstanceRequest struct {
 	SpaceGUID        string                `json:"space_guid"`
 	Parameters       *runtime.RawExtension `json:"parameters"`
 	MaintenanceInfo  *MaintenanceInfo      `json:"maintenance_info"`
+	UserID			 string                `json:"user_id"`
 }
 
 // CreateServiceInstanceResponse is returned by the server when creating a service instance.
@@ -228,8 +229,6 @@ type ServiceSubscriptionRequest struct {
 	PlanID string `json:"plan_id"`
 	// UserID is the ID of the user to buy the service for.
 	UserID string `json:"user_id"`
-	// Namespace is the namespace to buy the service in.
-	Namespace string `json:"namespace"`
 }
 
 // ServiceSubscriptionResponse is the response to subscribe to a service.
@@ -269,12 +268,6 @@ type PeeringRequest struct {
 // PeeringResponse is the response to create a peering.
 type PeeringResponse struct {
 	// PeeringID is the ID of the peering.
-	PeeringID string `json:"peering_id"`
-}
-
-// CheckPeeringStatusRequest is the request to check a peering.
-type CheckPeeringStatusRequest struct {
-	// PeeringID is the ID of the peering to check.
 	PeeringID string `json:"peering_id"`
 }
 

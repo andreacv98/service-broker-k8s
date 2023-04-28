@@ -53,16 +53,39 @@ func handleReadCatalog(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 	JSONResponse(w, http.StatusOK, config.Config().Spec.Catalog.Convert())
 }
 
-func authorizeProvisioning(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
+func authorizeProvisioning(c *ServerConfiguration, r *http.Request, serviceID, planID string, request *api.CreateServiceInstanceRequest) error {
 	// Extract userid from jwt token using gocloak
 	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
 	glog.Info("Token: ", tokenString)
 
-	userID, err := extractUserId(c, tokenString)
-	if err != nil {
+	var userID string
+
+	if authorized, err := checkRole(c, tokenString, []string{"manager"});
+	err != nil {
 		return err
+	} else if !authorized {
+		authorized, err = checkRole(c, tokenString, []string{"customer"})
+		if err != nil {
+			return err
+		} else if !authorized {
+			return fmt.Errorf("user is not authorized to provision services")
+		} else {
+			// Get userID from token
+			userID, err := extractUserId(c, tokenString)
+			if err != nil {
+				return err
+			}
+			glog.Info("User ID: ", userID)
+		}
+	} else {
+		// Get userID from body
+		// Parse the creation request.
+		glog.Info("Request: ", request)
+		userID = request.UserID
+		if userID == "" {
+			return fmt.Errorf("user ID is not provided")
+		}
 	}
-	glog.Info("User ID: ", userID)
 
 	// Check if user has bought the service
 	if err := checkBoughtServices(c.AdvancedToken.DatabaseConfiguration.Db, userID, serviceID, planID); err != nil {
@@ -94,33 +117,29 @@ func extractUserId(c *ServerConfiguration, tokenString string) (string, error) {
 }
 
 func checkBoughtServices(db *sql.DB, userid, serviceID, planID string) error {
-	// Get bought services from database
-	rows, err := db.Query("SELECT service_id, plan_id FROM users_clusters, bought_services WHERE userid = $1 AND users_clusters.id = bought_services.users_clusters_id", userid)
+	// Create query to check if user has bought the service
+	query := "SELECT id FROM bought_services WHERE user_id = $1 AND service_id = $2 AND plan_id = $3"
+	// Execute query, only one row should be returned
+	row := db.QueryRow(query, userid, serviceID, planID)
+	var id string
+	err := row.Scan(&id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("user has not bought the service")
+		}
 		return err
 	}
-	defer rows.Close()
-	// Check if service id and plan id required have been bought by the user
-	for rows.Next() {
-		var serviceIDRow, planIDRow string
-		if err := rows.Scan(&serviceIDRow, &planIDRow); err != nil {
-			return err
-		}
-		if serviceIDRow == serviceID && planIDRow == planID {
-			return nil
-		}
-	}
-	return fmt.Errorf("service id and plan id not bought by user")
+	return nil
 }
 
-func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []string) error {
+func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []string) (bool, error) {
 	// Check role of the user
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
 	// Extract userid from tokenstring using gocloak
 	userId, err := extractUserId(c, tokenString)
 	if err != nil {
-		return err
+		return false, err
 	}
 	glog.Info("User ID: ", userId)
 
@@ -132,7 +151,7 @@ func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []strin
 		c.AdvancedToken.KeycloakConfiguration.Realm,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	glog.Info("JWT Client: ", jwtClient)
 
@@ -144,7 +163,7 @@ func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []strin
 		userId,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	glog.Info("Roles: ", roles)
 
@@ -173,11 +192,11 @@ func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []strin
 	
 	// Check lenght of rolesRequired, if it's zero, all roles required are present otherwise return error
 	if len(rolesRequired) != 0 {
-		return fmt.Errorf("user does not have the required roles")
+		return false, nil
 	}
 	glog.Info("User has the required roles")
 
-	return nil
+	return true, nil
 }
 
 func authorizeSubscription(c *ServerConfiguration, r *http.Request, serviceID, planID string) error {
@@ -186,8 +205,13 @@ func authorizeSubscription(c *ServerConfiguration, r *http.Request, serviceID, p
 	glog.Info("Token: ", tokenString)
 
 	// Check role of the user is "manager"
-	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+	if authorized, err := checkRole(c, tokenString, []string{"manager"});
+	err != nil {
+		glog.Error("Error checking role: ", err)
 		return err
+	} else if !authorized {
+		glog.Error("User is not authorized to perform this action")
+		return fmt.Errorf("user is not authorized to perform this action")
 	}
 	glog.Info("User is manager")
 
@@ -199,8 +223,10 @@ func authorizePeering(c *ServerConfiguration, r *http.Request) error {
 	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
 	glog.Info("Token: ", tokenString)
 	// Check if the user is a manager
-	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+	if authorized, err := checkRole(c, tokenString, []string{"manager"}); err != nil {
 		return err
+	} else if !authorized {
+		return fmt.Errorf("User is not authorized to perform this action")
 	}
 	glog.Info("User is manager")
 	return nil
@@ -212,8 +238,10 @@ func authorizeUnsubscription(c *ServerConfiguration, r *http.Request) error {
 	glog.Info("Token: ", tokenString)
 
 	// Check role of the user is "manager"
-	if err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+	if authorized, err := checkRole(c, tokenString, []string{"manager"}); err != nil {
 		return err
+	} else if !authorized {
+		return fmt.Errorf("User is not authorized to perform this action")
 	}
 	glog.Info("User is manager")
 
@@ -252,7 +280,7 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 		}
 
 		// Check if the user has bought the service
-		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
+		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID, request); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -691,12 +719,6 @@ func handleUpdateServiceInstance(configuration *ServerConfiguration) func(http.R
 			return
 		}
 
-		// Check if the user has bought the service
-		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
-			jsonError(w, err)
-			return
-		}
-
 		if err := planUpdatable(config.Config(), request.ServiceID, planID, newPlanID); err != nil {
 			jsonError(w, err)
 			return
@@ -796,12 +818,6 @@ func handleDeleteServiceInstance(configuration *ServerConfiguration) func(http.R
 
 		planID, err := getSingleParameter(r, "plan_id")
 		if err != nil {
-			jsonError(w, err)
-			return
-		}
-
-		// Check if the user has bought the service
-		if err := authorizeProvisioning(configuration, r, serviceID, planID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -1038,12 +1054,6 @@ func handleCreateServiceBinding(configuration *ServerConfiguration) func(http.Re
 		}
 
 		if err := validateParameters(config.Config(), request.ServiceID, request.PlanID, schemaTypeServiceBinding, schemaOperationCreate, request.Parameters); err != nil {
-			jsonError(w, err)
-			return
-		}
-
-		// Check if the user has bought the service
-		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID); err != nil {
 			jsonError(w, err)
 			return
 		}
@@ -1337,12 +1347,6 @@ func handleDeleteServiceBinding(configuration *ServerConfiguration) func(http.Re
 			return
 		}
 
-		// Check if the user has bought the service
-		if err := authorizeProvisioning(configuration, r, serviceID, planID); err != nil {
-			jsonError(w, err)
-			return
-		}
-
 		serviceInstanceServiceID, ok, err := entry.GetString(registry.ServiceID)
 		if err != nil {
 			jsonError(w, err)
@@ -1421,15 +1425,10 @@ func handleServiceSubscription(configuration *ServerConfiguration) func(http.Res
 			return
 		}
 
-		namespace := request.Namespace
-		if namespace == "" {
-			jsonError(w, fmt.Errorf("%w: request missing namespace parameter", ErrUnexpected))
-			return
-		}
-
-		glog.Info("Request to buy service: ", serviceID, " plan: ", planID, " for user: ", userID, " in namespace: ", namespace)
+		glog.Info("Request to buy service: ", serviceID, " plan: ", planID, " for user: ", userID)
 
 		// Check if the user who request the purchase can buy the service
+		// TLDR: the user is a manager
 		if err := authorizeSubscription(configuration, r, serviceID, planID); err != nil {
 			jsonError(w, err)
 			return
@@ -1438,28 +1437,9 @@ func handleServiceSubscription(configuration *ServerConfiguration) func(http.Res
 
 		// Check if the user is already registred with the specified namespace in the database
 		db := configuration.AdvancedToken.DatabaseConfiguration.Db
-		rows, err := db.Query("SELECT id FROM users_clusters WHERE namespace = $1 AND userid = $2", namespace, userID)
-		if err != nil {
-			jsonError(w, err)
-			return
-		}
-		defer rows.Close()
-		if !rows.Next() {
-			jsonError(w, errors.NewResourceGoneError("user and namespaces not registred"))
-			return
-		}
-		// Get the users_clusters.id
-		// id of the userCluster
-		var usersClustersID int
-		err = rows.Scan(&usersClustersID)
-		if err != nil {
-			jsonError(w, err)
-			return
-		}
-		glog.Info("usersClustersID: ", usersClustersID)
 
 		// Check if the user has already bought the service
-		rows, err = db.Query("SELECT * FROM bought_services, users_clusters WHERE bought_services.service_id = $1 AND bought_services.plan_id = $2 AND users_clusters.namespace = $3 AND users_clusters.userid = $4 AND users_clusters_id = users_clusters.id", serviceID, planID, namespace, userID)
+		rows, err := db.Query("SELECT * FROM bought_services WHERE bought_services.service_id = $1 AND bought_services.plan_id = $2 AND bought_services.user_id = $3", serviceID, planID, userID)
 		if err != nil {
 			jsonError(w, err)
 			return
@@ -1472,7 +1452,7 @@ func handleServiceSubscription(configuration *ServerConfiguration) func(http.Res
 		glog.Info("service not already bought")
 
 		// Insert the purchase in the database
-		row := db.QueryRow("INSERT INTO bought_services (service_id, plan_id, users_clusters_id) VALUES ($1, $2, $3) RETURNING id", serviceID, planID, usersClustersID)
+		row := db.QueryRow("INSERT INTO bought_services (service_id, plan_id, user_id) VALUES ($1, $2, $3) RETURNING id", serviceID, planID, userID)
 
 		// Get the purchase id
 		var subscriptionID int
@@ -1553,10 +1533,24 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 
 		ctx := context.Background()
 
-		// Register peering into db
-		row := configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO peering (cluster_id, ready) VALUES ($1, $2) RETURNING id", request.ClusterID, false)
-		// Get the ID
+		// Check not already peered
+		row := configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("SELECT id FROM peering WHERE cluster_id = $1", request.ClusterID)
 		var peeringid int
+		err = row.Scan(&peeringid)
+		if err == nil {
+			glog.Info("Already peered with cluster: ", request.ClusterID)
+			jsonError(w, errors.NewResourceGoneError("Already peered with cluster: "+request.ClusterID))
+			return
+		}
+		if err != sql.ErrNoRows {
+			glog.Info("Error while scanning peeringid: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		// Register peering into db
+		row = configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO peering (cluster_id, ready, namespace, user_id) VALUES ($1, $2, $3, $4) RETURNING id", request.ClusterID, false, request.PrefixNamespace, request.UserID)
+		// Get the ID
 		err = row.Scan(&peeringid)
 		if err != nil {
 			glog.Info("Error while scanning peeringid: ", err)
@@ -1578,9 +1572,11 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			configuration.AdvancedToken.DatabaseConfiguration.Db,
 		)
 
+		glog.Info("Peering created with id: ", peeringid)
 		response := &api.PeeringResponse{
-			PeeringID: strconv.Itoa(int(peeringid)),
+			PeeringID: strconv.Itoa(peeringid),
 		}
+		glog.Info("Peering response: ", response)
 		JSONResponse(w, http.StatusAccepted, response)
 	}
 }
@@ -1588,24 +1584,21 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 		glog.Info("handleCheckPeeringStatus")
-		request := &api.CheckPeeringStatusRequest{}
-		if err := jsonRequest(r, request); err != nil {
-			glog.Info("Error in jsonRequest: ", err)
-			jsonError(w, err)
-			return
-		}
 
-		glog.Info("Request to check peering status: ", request)
-
-		// No particolar authorization is required to check the peering status
+		// No particular authorization is required to check the peering status
+		// TODO: add authorization to user for its peering and to manager for all the peerings
 
 		// Check into db peering status through request.PeeringID
-		peeringID := request.PeeringID
+		// Get peering id from the url
+		peeringID := params.ByName("peering_id")
+
+		glog.Info("Request to check peering status for peeringID: ", peeringID)
 		db := configuration.AdvancedToken.DatabaseConfiguration.Db
-		row := db.QueryRow("SELECT ready, error FROM peering WHERE id = $1", peeringID)
+		row := db.QueryRow("SELECT ready, error, namespace FROM peering WHERE id = $1", peeringID)
 		var ready bool
 		var error sql.NullString
-		err := row.Scan(&ready, &error)
+		var namespace string
+		err := row.Scan(&ready, &error, &namespace)
 		if err != nil {
 			// Check if query return any result
 			if err == sql.ErrNoRows {
@@ -1624,15 +1617,6 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 		}
 
 		if ready {
-			// Get namespace name from users_clusters table
-			row := db.QueryRow("SELECT users_clusters.namespace FROM users_clusters, peering WHERE peering.id = $1 AND peering.users_clusters_id = users_clusters.id", peeringID)
-			var namespace string
-			err := row.Scan(&namespace)
-			if err != nil {
-				glog.Info("Error while scanning namespace: ", err)
-				jsonError(w, err)
-				return
-			}
 			response := &api.CheckPeeringStatusResponseNamespace{
 				Namespace: namespace,
 			}
