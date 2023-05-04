@@ -20,7 +20,7 @@ spec:
       plans:
       - id: 8b0d4bb1-7b5a-4866-9f9b-2b7d92e7a8cd
         name: plan-customDb-v1-Liqo
-        description: customDb on Liqo
+        description: "Custom Database for academic purposes. Binding is required in order to get a working database instance and get access to it."
         schemas:
           serviceInstance:
             create:
@@ -31,9 +31,10 @@ spec:
                   - secret-binding-name
                 properties:
                   secret-binding-name:
-                    description: "Credentials name"
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
-                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
             update:
               parameters:
                 $schema: "http://json-schema.org/draft-07/schema#"
@@ -42,9 +43,10 @@ spec:
                   - secret-binding-name
                 properties:
                   secret-binding-name:
-                    description: "Secret binding name"
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
-                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
           serviceBinding:
             create:
               parameters:
@@ -71,11 +73,12 @@ spec:
                     description: "Port"
                     type: integer
                   secret-binding-name:
-                    description: "Secret binding name"
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
-                    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
                   binding-namespace:
-                    description: "Namespace where the binding will be created"
+                    description: "Namespace where the secret with the credentials will be created. It should be the same namespace where your application which will use the database is running."
                     type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst

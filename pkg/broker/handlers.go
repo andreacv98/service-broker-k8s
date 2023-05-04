@@ -23,6 +23,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/couchbase/service-broker/pkg/api"
 	"github.com/couchbase/service-broker/pkg/config"
@@ -100,6 +101,8 @@ func extractUserId(c *ServerConfiguration, tokenString string) (string, error) {
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
 
+	// Wait 500ms
+	time.Sleep(1000 * time.Millisecond)
 	_, claims, err := client.DecodeAccessToken(
 		ctx,
 		tokenString,
@@ -137,6 +140,7 @@ func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []strin
 	ctx := context.Background()
 	client := c.AdvancedToken.KeycloakConfiguration.Client
 	// Extract userid from tokenstring using gocloak
+	// Wait 500ms
 	userId, err := extractUserId(c, tokenString)
 	if err != nil {
 		return false, err
@@ -156,6 +160,7 @@ func checkRole(c *ServerConfiguration, tokenString string, rolesRequired []strin
 	glog.Info("JWT Client: ", jwtClient)
 
 	// Get role mapping as admin client logged of the user id previously extracted
+	time.Sleep(1000 * time.Millisecond)
 	roles, err := client.GetRoleMappingByUserID(
 		ctx,
 		jwtClient.AccessToken,
@@ -231,6 +236,28 @@ func authorizePeering(c *ServerConfiguration, r *http.Request) error {
 	glog.Info("User is manager")
 	return nil
 }
+
+func authorizeGetPeering(c *ServerConfiguration, r *http.Request, peeringUserId string) error {
+	// Extract token from request
+	tokenString := strings.Split(r.Header.Get("Authorization"), "Bearer ")[1]
+	glog.Info("Token: ", tokenString)
+	// Check if the user is a manager
+	if authorized, err := checkRole(c, tokenString, []string{"manager"}); err != nil {
+		return err
+	} else if !authorized {
+		// User is not a manager, check if the user is the owner of the peering
+		userId, err := extractUserId(c, tokenString)
+		if err != nil {
+			return err
+		}
+		if userId != peeringUserId {
+			return fmt.Errorf("User is not authorized to perform this action")
+		}
+	}
+	glog.Info("User is manager")
+	return nil
+}
+
 
 func authorizeUnsubscription(c *ServerConfiguration, r *http.Request) error {
 	// Extract token from request
@@ -1519,7 +1546,7 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 		err := authorizePeering(configuration, r)
 		if err != nil {
 			glog.Info("Error in authorizePeering: ", err)
-			jsonError(w, err)
+			JSONResponse(w, http.StatusUnauthorized, err)
 			return
 		}
 
@@ -1534,12 +1561,22 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 		ctx := context.Background()
 
 		// Check not already peered
-		row := configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("SELECT id FROM peering WHERE cluster_id = $1", request.ClusterID)
+		row := configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("SELECT id, user_id FROM peering WHERE cluster_id = $1", request.ClusterID)
 		var peeringid int
-		err = row.Scan(&peeringid)
+		var user_id string
+		err = row.Scan(&peeringid, &user_id)
 		if err == nil {
+			// Peering already exists
 			glog.Info("Already peered with cluster: ", request.ClusterID)
-			jsonError(w, errors.NewResourceGoneError("Already peered with cluster: "+request.ClusterID))
+			// Check if the peering is owned by the user in the request
+			if user_id != request.UserID {
+				glog.Info("Peering already exists and is owned by another user")
+				// Return conflict code with empty body
+				JSONResponse(w, http.StatusConflict, nil)
+			} else {
+				glog.Info("Peering already exists and is owned by the user")
+				JSONResponse(w, http.StatusOK, api.PeeringResponse{PeeringID: strconv.Itoa(peeringid)})
+			}
 			return
 		}
 		if err != sql.ErrNoRows {
@@ -1585,20 +1622,18 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
 		glog.Info("handleCheckPeeringStatus")
 
-		// No particular authorization is required to check the peering status
-		// TODO: add authorization to user for its peering and to manager for all the peerings
-
 		// Check into db peering status through request.PeeringID
 		// Get peering id from the url
 		peeringID := params.ByName("peering_id")
 
 		glog.Info("Request to check peering status for peeringID: ", peeringID)
 		db := configuration.AdvancedToken.DatabaseConfiguration.Db
-		row := db.QueryRow("SELECT ready, error, namespace FROM peering WHERE id = $1", peeringID)
+		row := db.QueryRow("SELECT ready, error, namespace, user_id FROM peering WHERE id = $1", peeringID)
 		var ready bool
 		var error sql.NullString
 		var namespace string
-		err := row.Scan(&ready, &error, &namespace)
+		var user_id string
+		err := row.Scan(&ready, &error, &namespace, &user_id)
 		if err != nil {
 			// Check if query return any result
 			if err == sql.ErrNoRows {
@@ -1616,19 +1651,30 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 			return
 		}
 
+		// Check if the user who request the peering is authorized
+		err = authorizeGetPeering(configuration, r, user_id)
+		if err != nil {
+			glog.Info("Error in authorizeGetPeering: ", err)
+			JSONResponse(w, http.StatusUnauthorized, err)
+			return
+		}
+
 		if ready {
+			// Peering is ready
 			response := &api.CheckPeeringStatusResponseNamespace{
 				Namespace: namespace,
 			}
 			JSONResponse(w, http.StatusOK, response)
 		} else {
 			if !(error.Valid) {
+				// Peering is ongoing
 				response := &api.CheckPeeringStatusResponseNotReady{
 					Ready: false,
 				}
-				JSONResponse(w, http.StatusProcessing, response)
+				JSONResponse(w, http.StatusAccepted, response)
 				return
 			} else {
+				// Peering failed
 				response := &api.CheckPeeringStatusResponseNotReady{
 					Ready: false,
 					Error: error.String,
