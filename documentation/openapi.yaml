@@ -720,6 +720,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/UnauthorizedError'
 
+  /auth/credentials:
+    post:
+      summary: get the credentials for a specific service and plan
+      tags:
+        - AuthCredentials
+      operationId: authCredentials.post
+      parameters:
+        - $ref: '#/components/parameters/APIVersion'
+        - $ref: '#/components/parameters/OriginatingIdentity'
+      requestBody:
+        description: parameters for the requested credentials
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsRequest'
+      responses:
+        '200':
+          description: Credentials retrieved successfully
+        '400':
+          description: Bad Request more details in the response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   parameters:
     APIVersion:
@@ -1219,6 +1245,23 @@ components:
       type: object
       properties:
         error:
+          type: string
+
+    CredentialsRequest:
+      type: object
+      required:
+        - auth_url
+        - realm
+        - client_id
+        - client_secret
+      properties:
+        auth_url:
+          type: string
+        realm:
+          type: string
+        client_id:
+          type: string
+        client_secret:
           type: string
 
   securitySchemes:
