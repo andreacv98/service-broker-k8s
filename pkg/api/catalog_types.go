@@ -45,6 +45,7 @@ type ServicePlan struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
+	PeeringPolicy string  `json:"peering_policy,omitempty"`
 	Metadata    interface{} `json:"metadata,omitempty"`
 	Free        bool        `json:"free,omitempty"`
 	Bindable    *bool       `json:"bindable,omitempty"`

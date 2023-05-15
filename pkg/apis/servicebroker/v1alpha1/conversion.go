@@ -71,6 +71,7 @@ func (in ServicePlan) Convert() api.ServicePlan {
 		ID:          in.ID,
 		Name:        in.Name,
 		Description: in.Description,
+		PeeringPolicy: in.PeeringPolicy,
 		Metadata:    in.Metadata,
 		Free:        in.Free,
 		Bindable:    in.Bindable,

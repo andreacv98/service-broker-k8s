@@ -133,7 +133,7 @@ INSTALL_TARGETS = $(INSTALL_SHARE_TARGETS) $(INSTALL_BIN_TARGETS)
 
 # This is the base directory to generate kubernetes API primitives from e.g.
 # clients and CRDs.
-GENAPIBASE = github.com/couchbase/service-broker/pkg/apis
+GENAPIBASE = $(shell pwd)/pkg/apis
 
 # This is the list of APIs to generate clients for.
 GENAPIS = $(GENAPIBASE)/servicebroker/v1alpha1
@@ -255,10 +255,10 @@ $(GENERATED_DIR): $(APISRC)
 	go install k8s.io/code-generator/cmd/client-gen@v0.23.2
 	go install k8s.io/code-generator/cmd/lister-gen@v0.23.2
 	go install k8s.io/code-generator/cmd/informer-gen@v0.23.2
-	$(HOME)/go/bin/deepcopy-gen --input-dirs $(GENAPIS) -O zz_generated.deepcopy --bounding-dirs $(GENAPIBASE) $(GENARGS)
-	$(HOME)/go/bin/client-gen --clientset-name $(GENCLIENTNAME) --input-base "" --input $(GENAPIS) --output-package $(GENCLIENTS) $(GENARGS)
-	$(HOME)/go/bin/lister-gen --input-dirs $(GENAPIS) --output-package $(GENLISTERS) $(GENARGS)
-	$(HOME)/go/bin/informer-gen --input-dirs $(GENAPIS) --versioned-clientset-package $(GENCLIENTS)/$(GENCLIENTNAME) --listers-package $(GENLISTERS) --output-package $(GENINFORMERS) $(GENARGS)
+	/go/bin/deepcopy-gen --input-dirs $(GENAPIS) -O zz_generated.deepcopy --bounding-dirs $(GENAPIBASE) $(GENARGS)
+	/go/bin/client-gen --clientset-name $(GENCLIENTNAME) --input-base "" --input $(GENAPIS) --output-package $(GENCLIENTS) $(GENARGS)
+	/go/bin/lister-gen --input-dirs $(GENAPIS) --output-package $(GENLISTERS) $(GENARGS)
+	/go/bin/informer-gen --input-dirs $(GENAPIS) --versioned-clientset-package $(GENCLIENTS)/$(GENCLIENTNAME) --listers-package $(GENLISTERS) --output-package $(GENINFORMERS) $(GENARGS)
 	@touch $(GENERATED_DIR)
 
 # The main broker binary depends on generated code and all source.

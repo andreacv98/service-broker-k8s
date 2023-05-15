@@ -4,6 +4,7 @@
 FROM golang AS build
 WORKDIR /app
 COPY . .
+RUN echo $PATH
 RUN make build
 #
 # ---- Release image ----

@@ -10,17 +10,22 @@ spec:
   # Catalog is simply verbatim what will be exposed on GET /v2/catalog
   catalog:
     services:
-    - id: customDb-v1-001
-      name: custom-database-v1
-      description: Custom Database for academic purposes
+    - id: superdb01
+      name: SuperDatabase
+      description: "SuperDatabase is a custom database for academic purposes. It's a MySQL database totally empty, just for testing purposes."
       tags:
       - database
+      - mysql
+      - relational
+      - rdbms
+      - liqo
       bindable: true
       planUpdatable: false
       plans:
-      - id: 8b0d4bb1-7b5a-4866-9f9b-2b7d92e7a8cd
-        name: plan-customDb-v1-Liqo
-        description: "Custom Database for academic purposes. Binding is required in order to get a working database instance and get access to it."
+      - id: superdb01-demo
+        name: Demo
+        description: "Demo plan for SuperDatabase. Just for testing purposes. No production use is suggested, as it's only a demo for academic purposes."
+        peeringPolicy: "Remote"
         schemas:
           serviceInstance:
             create:
@@ -165,9 +170,9 @@ spec:
   # Bindings bind templates to service plans.  These allow the specification of
   # exactly what templates are created when a plan is instantiated or bound to.
   bindings:
-  - name: plan-customDb-v1-Liqo
-    service: custom-database-v1
-    plan: plan-customDb-v1-Liqo
+  - name: SuperDB-Demo-binding
+    service: SuperDatabase
+    plan: Demo
     registryScope: InstanceLocal
     serviceInstance:
       registry:
