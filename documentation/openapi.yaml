@@ -690,6 +690,9 @@ paths:
       tags:
         - ServiceSubscription
       operationId: serviceSubscription.post
+      security:
+        - openId:
+          - marketplace
       parameters:
         - $ref: '#/components/parameters/APIVersion'
         - $ref: '#/components/parameters/OriginatingIdentity'
@@ -1265,16 +1268,12 @@ components:
           type: string
 
   securitySchemes:
-    basicAuth:
-      type: http
-      scheme: basic
-    advancedToken:
-      type: http
-      scheme: bearer
+    openId:
+      type: openIdConnect
+      openIdConnectUrl: https://auth.cvfnet.org/realms/service-broker/.well-known/openid-configuration
 
 security:
-  - basicAuth: []
-  - advancedToken: []
+    - openId: []
 
 externalDocs:
   description: The offical Open Service Broker API specification
