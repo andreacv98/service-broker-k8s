@@ -155,6 +155,19 @@ type DashboardClient struct {
 	RedirectedURI string `json:"redirectedURI,omitempty"`
 }
 
+// PeeringPolicy is the policy for the Liqo peering and so the effective resource deployment and consumption. It can be:
+// - "Local" if the peering is local to the cluster
+// - "Remote" if the peering is remote to the cluster
+// - "LocalAndRemote " if the peering can be both local and remote
+// +kubebuilder:validation:Enum=Local;Remote;LocalAndRemote
+type PeeringPolicy string
+
+const (
+    PeeringPolicyLocal         PeeringPolicy = "Local"
+    PeeringPolicyRemote        PeeringPolicy = "Remote"
+    PeeringPolicyLocalAndRemote PeeringPolicy = "LocalAndRemote"
+) 
+
 // ServicePlan is defined by:
 // https://github.com/openservicebrokerapi/servicebroker/blob/master/spec.md#body
 type ServicePlan struct {
@@ -174,12 +187,9 @@ type ServicePlan struct {
 	// +kubebuilder:validation:MinLength=1
 	Description string `json:"description"`
 
-	// PeeringPolicy is the policy for the Liqo peering and so the effective resource deployment and consumption. It can be:
-	// - "Local" if the peering is local to the cluster
-	// - "Remote" if the peering is remote to the cluster
-	// - "LocalRemote" if the peering can be both local and remote
-	// +kubebuilder:validation:Enum=Local;Remote;LocalRemote
-	PeeringPolicy string `json:"peeringPolicy,omitempty"`
+	// PeeringPolicies is the list of policies for the Liqo peering and so the effective resource deployment and consumption.
+	// +kubebuilder:validation:MinItems=1
+	PeeringPolicies []PeeringPolicy `json:"peeringPolicies,omitempty"`
 
 	// Metadata is an opaque object of metadata for a Service Plan. It is expected that Platforms
 	// will treat this as a blob. Note that there are conventions in existing Service Brokers and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
 	configSB "github.com/couchbase/service-broker/pkg/config"
@@ -66,7 +67,7 @@ func Create(namespaceLiqo string) (*Liqo, error) {
 	return &Liqo{CRClient: CRClient, Namespace: LiqoNamespace}, nil
 }
 
-func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID, NamespacePrefix string, peeringid int, db *sql.DB) {
+func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken, ClusterAuthURL, ClusterName, OffloadingPolicy, UserID, NamespacePrefix string, peeringid, namespace_id int, db *sql.DB) {
 
 	glog.Info("Starting peering")
 	// Start peering
@@ -96,19 +97,11 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 		return
 	}
 	glog.Info("Peering established")
-	
-	var namespace string
-	// Create and offload namespace
-	if NamespacePrefix == "" {
-		namespace = ClusterName + "-" + ClusterID
-	} else {
-		namespace = NamespacePrefix + "-" + ClusterID
-	}
-	
-	glog.Info("Creating namespace")
-	_, _, err = liqo.OffloadNamespace(ctx, namespace, &fc.Spec.ClusterIdentity, OffloadingPolicy)
+
+	// Set peering ready and effective namespace
+	_, err = db.Exec("UPDATE peering SET ready = $1 WHERE id = $2", true, peeringid)
 	if err != nil {
-		strErr := fmt.Sprintf("Error while offloading namespace: %s", err)
+		strErr := fmt.Sprintf("Error while updating peering status: %s", err)
 		glog.Info(strErr)
 		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
 		if err != nil {
@@ -116,16 +109,58 @@ func (liqo *Liqo) PeerAndNamespace(ctx context.Context, ClusterID, ClusterToken,
 		}
 		return
 	}
+
+	// Start with the Namespace
+	liqo.NamespaceAndOffload(ctx, db, peeringid, namespace_id, ClusterID, ClusterName, OffloadingPolicy, NamespacePrefix)
+}
+
+func (liqo *Liqo) NamespaceAndOffload(ctx context.Context, db *sql.DB, peeringid, namespace_id int, ClusterID, ClusterName, OffloadingPolicy, NamespacePrefix string) {
+
+	// Retrieve ForeignCluster
+	var fc, err = liqo.GetForeignCluster(ctx, ClusterID)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while getting ForeignCluster: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE namespaces SET ready = $1, error = $2 WHERE id = $3", false, strErr, namespace_id)
+		if err != nil {
+			glog.Info("Error while updating namespace status: ", err)
+		}
+		return
+	}
+
+	// Create namespace name as combination of elements
+	
+	// Namespace name
+	var namespace string
+	// Create and offload namespace
+	if NamespacePrefix == "" {
+		namespace = ClusterName + "-" + ClusterID + "-" + strconv.Itoa(namespace_id)
+	} else {
+		namespace = NamespacePrefix + "-" + ClusterID + "-" + strconv.Itoa(namespace_id)
+	}
+	
+	glog.Info("Creating namespace")
+	_, _, err = liqo.OffloadNamespace(ctx, namespace, &fc.Spec.ClusterIdentity, OffloadingPolicy)
+	if err != nil {
+		strErr := fmt.Sprintf("Error while offloading namespace: %s", err)
+		glog.Info(strErr)
+		_, err = db.Exec("UPDATE namespaces SET ready = $1, error = $2 WHERE id = $3", false, strErr, namespace_id)
+		if err != nil {
+			glog.Info("Error while updating namespace status: ", err)
+		}
+		return
+	}
 	glog.Info("Namespace offloaded")
 
-	// Set peering ready and effective namespace
-	_, err = db.Exec("UPDATE peering SET ready = $1, namespace = $2 WHERE id = $3", true, namespace, peeringid)
+	
+	// UPDATE namespaces in db
+	_, err = db.Exec("UPDATE namespaces SET namespace = $1, ready = $2 WHERE id = $3", namespace, true, namespace_id)
 	if err != nil {
-		strErr := fmt.Sprintf("Error while updating peering status: %s", err)
+		strErr := fmt.Sprintf("Error while updating namespace name: %s", err)
 		glog.Info(strErr)
-		_, err = db.Exec("UPDATE peering SET ready = $1, error = $2 WHERE id = $3", false, strErr, peeringid)
+		_, err = db.Exec("UPDATE namespaces SET ready = $1, error = $2 WHERE id = $3", false, strErr, namespace_id)
 		if err != nil {
-			glog.Info("Error while updating peering status: ", err)
+			glog.Info("Error while updating namespace status: ", err)
 		}
 		return
 	}
@@ -420,11 +455,12 @@ func (liqo *Liqo) OffloadNamespace(ctx context.Context, namespace string, remote
 	// EnforceSameNameMappingStrategyType is the default strategy
 	nms := offloadingv1alpha1.EnforceSameNameMappingStrategyType
 	pos := offloadingv1alpha1.LocalAndRemotePodOffloadingStrategyType
-	if offloadingPolicy == "local" {
+	glog.Info("Offloading policy: ", offloadingPolicy)
+	if offloadingPolicy == "Local" {
 		pos = offloadingv1alpha1.LocalPodOffloadingStrategyType
-	} else if offloadingPolicy == "remote" {
+	} else if offloadingPolicy == "Remote" {
 		pos = offloadingv1alpha1.RemotePodOffloadingStrategyType
-	} else if offloadingPolicy == "local-remote" {
+	} else if offloadingPolicy == "LocalAndRemote" {
 		pos = offloadingv1alpha1.LocalAndRemotePodOffloadingStrategyType
 	}
 	nsoff := &offloadingv1alpha1.NamespaceOffloading{
@@ -453,5 +489,17 @@ func (liqo *Liqo) OffloadNamespace(ctx context.Context, namespace string, remote
 	}
 
 	return ns, nsoff, nil	
+
+}
+
+// GetNamespaceOffloading returns the namespaceOffloading of a namespace.
+func (liqo *Liqo) GetNamespaceOffloading(namespace string) (*offloadingv1alpha1.NamespaceOffloading, error) {
+	nsoff := &offloadingv1alpha1.NamespaceOffloading{}
+	err := liqo.CRClient.Get(context.Background(), client.ObjectKey{Name: consts.DefaultNamespaceOffloadingName, Namespace: namespace}, nsoff)
+	if err != nil {
+		glog.Info("Error while retrieving namespaceOffloading: ", err)
+		return nil, err
+	}
+	return nsoff, nil
 
 }

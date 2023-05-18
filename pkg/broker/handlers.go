@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	v1 "github.com/couchbase/service-broker/pkg/apis/servicebroker/v1alpha1"
 	"github.com/couchbase/service-broker/pkg/api"
 	"github.com/couchbase/service-broker/pkg/config"
 	"github.com/couchbase/service-broker/pkg/errors"
@@ -93,6 +94,21 @@ func authorizeProvisioning(c *ServerConfiguration, r *http.Request, serviceID, p
 		return err
 	}
 	glog.Info("User has bought the service")
+
+	// Get servicePlan
+	svcPlan, err := getServicePlan(config.Config(), request.ServiceID, request.PlanID)
+	if err != nil {
+		return err
+	}
+	// Check the namespace in the context is owned by the user
+	destns, err := getNamespace(request.Context, c.Namespace)
+	if err != nil {
+		return err
+	}
+	if err := checkNamespaceCompatibility(c, destns, svcPlan, userID); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -231,7 +247,7 @@ func authorizePeering(c *ServerConfiguration, r *http.Request) error {
 	if authorized, err := checkRole(c, tokenString, []string{"manager"}); err != nil {
 		return err
 	} else if !authorized {
-		return fmt.Errorf("User is not authorized to perform this action")
+		return fmt.Errorf("user is not authorized to perform this action")
 	}
 	glog.Info("User is manager")
 	return nil
@@ -251,7 +267,7 @@ func authorizeGetPeering(c *ServerConfiguration, r *http.Request, peeringUserId 
 			return err
 		}
 		if userId != peeringUserId {
-			return fmt.Errorf("User is not authorized to perform this action")
+			return fmt.Errorf("user is not authorized to perform this action")
 		}
 	}
 	glog.Info("User is manager")
@@ -268,13 +284,75 @@ func authorizeUnsubscription(c *ServerConfiguration, r *http.Request) error {
 	if authorized, err := checkRole(c, tokenString, []string{"manager"}); err != nil {
 		return err
 	} else if !authorized {
-		return fmt.Errorf("User is not authorized to perform this action")
+		return fmt.Errorf("user is not authorized to perform this action")
 	}
 	glog.Info("User is manager")
 
 	return nil
 }
 
+func checkNamespaceCompatibility(c *ServerConfiguration, namespace string, servicePlane *v1.ServicePlan, userID string) error {
+	// Check if the namespace is owned by the user
+	if err := checkNamespaceOwner(c.AdvancedToken.DatabaseConfiguration.Db, namespace, userID); err != nil {
+		return err
+	}
+	glog.Info("Namespace is owned by the user")
+
+	// Check peeringPolicy is compatible of the servicePlan is compatible with the namespace
+	if err := checkPeeringPolicy(c.AdvancedToken.DatabaseConfiguration.Db, namespace, servicePlane); err != nil {
+		return err
+	}
+	glog.Info("Peering policy is compatible")
+
+	return nil
+}
+
+func checkNamespaceOwner(db *sql.DB, namespace, userID string) error {
+	// Create query to check if namespace is owned by the user
+	query := "SELECT namespaces.id FROM namespaces INNER JOIN peering ON namespaces.peering_id = peering.id WHERE namespaces.namespace = $1 AND peering.user_id = $2"
+	// Execute query, only one row should be returned
+	row := db.QueryRow(query, namespace, userID)
+	var id string
+	err := row.Scan(&id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("namespace is not owned by the user")
+		}
+		return err
+	}
+	return nil
+}
+
+func checkPeeringPolicy(db *sql.DB, namespace string, servicePlane *v1.ServicePlan) error {
+	// Get namespaceOffloading based on the namespace
+	liqo, err := liqo.Create("liqo")
+	if err != nil {
+		return err
+	}
+	namespaceOffloading, err := liqo.GetNamespaceOffloading(namespace)
+	if err != nil {
+		return err
+	}
+	glog.Info("Namespace offloading: ", namespaceOffloading)
+	glog.Info("Pod offloading strategy of the namespace: " + namespaceOffloading.Spec.PodOffloadingStrategy)
+
+	// Transform namespaceOffloading pod offloading strategy to string
+	var nsoffloading = string(namespaceOffloading.Spec.PodOffloadingStrategy)
+	glog.Info("Pod offloading strategy of the namespace as STRING: " + nsoffloading)
+	// Compare namespaceOffloading exists inside servicePlan.PeeringPolicies
+	var found = false
+	for _, peeringPolicy := range servicePlane.PeeringPolicies {
+		if peeringPolicy.Convert() == nsoffloading {
+			found = true
+			break;
+		}
+	}
+	if !found {
+		return fmt.Errorf("peering policy is not compatible")
+	}
+
+	return nil
+}
 
 // handleCreateServiceInstance creates a service instance of a plan.
 func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.ResponseWriter, *http.Request, httprouter.Params) {
@@ -310,7 +388,7 @@ func handleCreateServiceInstance(configuration *ServerConfiguration) func(http.R
 		if err := authorizeProvisioning(configuration, r, request.ServiceID, request.PlanID, request); err != nil {
 			jsonError(w, err)
 			return
-		}
+		}		
 
 		if err := validateParameters(config.Config(), request.ServiceID, request.PlanID, schemaTypeServiceInstance, schemaOperationCreate, request.Parameters); err != nil {
 			jsonError(w, err)
@@ -1575,7 +1653,33 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 				JSONResponse(w, http.StatusConflict, nil)
 			} else {
 				glog.Info("Peering already exists and is owned by the user")
-				JSONResponse(w, http.StatusOK, api.PeeringResponse{PeeringID: strconv.Itoa(peeringid)})
+				// Register namespace associated to the peering into db
+				row = configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO namespaces (peering_id, namespace, ready) VALUES ($1, $2, $3) RETURNING id", peeringid, request.PrefixNamespace, false)
+				// Get the ID
+				var namespace_id int
+				err = row.Scan(&namespace_id)
+				if err != nil {
+					glog.Info("Error while scanning namespace_id: ", err)
+					jsonError(w, err)
+					return
+				}
+				// Liqo create namespace and offload it
+				// TODO: sync or async operation?
+				go liqo.NamespaceAndOffload(
+					ctx,
+					configuration.AdvancedToken.DatabaseConfiguration.Db,
+					peeringid,
+					namespace_id,
+					request.ClusterID,
+					request.ClusterName,
+					request.OffloadingPolicy,
+					request.PrefixNamespace,
+				)
+				glog.Info("Peering created with id: ", peeringid, " and namespaceId: " , namespace_id)
+				response := &api.PeeringResponse{
+					PeeringID: strconv.Itoa(namespace_id),
+				}
+				JSONResponse(w, http.StatusAccepted, response)
 			}
 			return
 		}
@@ -1584,13 +1688,23 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			jsonError(w, err)
 			return
 		}
-
 		// Register peering into db
-		row = configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO peering (cluster_id, ready, namespace, user_id) VALUES ($1, $2, $3, $4) RETURNING id", request.ClusterID, false, request.PrefixNamespace, request.UserID)
+		row = configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO peering (cluster_id, ready, user_id) VALUES ($1, $2, $3) RETURNING id", request.ClusterID, false, request.UserID)
 		// Get the ID
 		err = row.Scan(&peeringid)
 		if err != nil {
 			glog.Info("Error while scanning peeringid: ", err)
+			jsonError(w, err)
+			return
+		}
+
+		// Register namespace associated to the peering into db
+		row = configuration.AdvancedToken.DatabaseConfiguration.Db.QueryRow("INSERT INTO namespaces (peering_id, namespace, ready) VALUES ($1, $2, $3) RETURNING id", peeringid, request.PrefixNamespace, false)
+		// Get the ID
+		var namespace_id int
+		err = row.Scan(&namespace_id)
+		if err != nil {
+			glog.Info("Error while scanning namespace_id: ", err)
 			jsonError(w, err)
 			return
 		}
@@ -1606,12 +1720,13 @@ func handlePeering(configuration *ServerConfiguration) func(http.ResponseWriter,
 			request.UserID,
 			request.PrefixNamespace,
 			peeringid,
+			namespace_id,
 			configuration.AdvancedToken.DatabaseConfiguration.Db,
 		)
 
-		glog.Info("Peering created with id: ", peeringid)
+		glog.Info("Peering created with id: ", peeringid, " and namespaceId: " , namespace_id)
 		response := &api.PeeringResponse{
-			PeeringID: strconv.Itoa(peeringid),
+			PeeringID: strconv.Itoa(namespace_id),
 		}
 		glog.Info("Peering response: ", response)
 		JSONResponse(w, http.StatusAccepted, response)
@@ -1628,12 +1743,14 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 
 		glog.Info("Request to check peering status for peeringID: ", peeringID)
 		db := configuration.AdvancedToken.DatabaseConfiguration.Db
-		row := db.QueryRow("SELECT ready, error, namespace, user_id FROM peering WHERE id = $1", peeringID)
+		row := db.QueryRow("SELECT peering.ready, peering.error, namespaces.namespace, namespaces.ready, namespaces.error, peering.user_id FROM peering INNER JOIN namespaces ON peering.id = namespaces.peering_id WHERE namespaces.id = $1", peeringID)
 		var ready bool
 		var error sql.NullString
 		var namespace string
+		var readyNs bool
+		var errorNs sql.NullString
 		var user_id string
-		err := row.Scan(&ready, &error, &namespace, &user_id)
+		err := row.Scan(&ready, &error, &namespace, &readyNs, &errorNs, &user_id)
 		if err != nil {
 			// Check if query return any result
 			if err == sql.ErrNoRows {
@@ -1659,29 +1776,55 @@ func handleCheckPeeringStatus(configuration *ServerConfiguration) func(http.Resp
 			return
 		}
 
-		if ready {
+		if ready && readyNs {
 			// Peering is ready
 			response := &api.CheckPeeringStatusResponseNamespace{
 				Namespace: namespace,
 			}
 			JSONResponse(w, http.StatusOK, response)
 		} else {
-			if !(error.Valid) {
-				// Peering is ongoing
-				response := &api.CheckPeeringStatusResponseNotReady{
-					Ready: false,
+			if(!ready) {
+				// Peering is not ready
+				if !(error.Valid) {
+					// Peering is ongoing
+					glog.Info("Peering is ongoing")
+					response := &api.CheckPeeringStatusResponseNotReady{
+						Ready: false,
+					}
+					JSONResponse(w, http.StatusAccepted, response)
+					return
+				} else {
+					// Peering failed
+					glog.Info("Peering failed")
+					response := &api.CheckPeeringStatusResponseNotReady{
+						Ready: false,
+						Error: error.String,
+					}
+					JSONResponse(w, http.StatusInternalServerError, response)
+					return
 				}
-				JSONResponse(w, http.StatusAccepted, response)
-				return
-			} else {
-				// Peering failed
-				response := &api.CheckPeeringStatusResponseNotReady{
-					Ready: false,
-					Error: error.String,
+			} else if (!readyNs) {
+				// Namespace is not ready
+				if !(errorNs.Valid) {
+					// Namespace is ongoing
+					glog.Info("Namespace is ongoing")
+					response := &api.CheckPeeringStatusResponseNotReady{
+						Ready: false,
+					}
+					JSONResponse(w, http.StatusAccepted, response)
+					return
+				} else {
+					// Namespace failed
+					glog.Info("Namespace failed")
+					response := &api.CheckPeeringStatusResponseNotReady{
+						Ready: false,
+						Error: errorNs.String,
+					}
+					JSONResponse(w, http.StatusInternalServerError, response)
+					return
 				}
-				JSONResponse(w, http.StatusInternalServerError, response)
-				return
 			}
+			
 		}
 
 	}	

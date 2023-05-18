@@ -125,7 +125,12 @@ func populateDatabase(db *sql.DB) error {
 		return err
 	}
 	// Create peering table if it doesn't exist
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS peering (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, namespace TEXT NOT NULL, cluster_id TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT)")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS peering (id SERIAL PRIMARY KEY, user_id TEXT NOT NULL, cluster_id TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT)")
+	if err != nil {
+		return err
+	}
+	// Create namespaces table if it doesn't exist
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS namespaces (id SERIAL PRIMARY KEY, peering_id INTEGER NOT NULL, namespace TEXT NOT NULL, ready BOOLEAN NOT NULL, error TEXT, FOREIGN KEY (peering_id) REFERENCES peering (id))")
 	if err != nil {
 		return err
 	}

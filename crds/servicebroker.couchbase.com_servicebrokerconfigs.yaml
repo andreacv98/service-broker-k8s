@@ -595,15 +595,18 @@ spec:
                                   the Service Plan. MUST be a non-empty string.
                                 minLength: 1
                                 type: string
-                              peeringPolicy:
-                                description: PeeringPolicy is the policy to where 
+                              peeringPolicies:
+                                description: PeeringPolicies is the list of policies to where 
                                   effectively create and consume resources for the
                                   service instance.
-                                enum:
-                                - Local
-                                - Remote
-                                - LocalRemote
-                                type: string
+                                items:
+                                  type: string
+                                  enum:
+                                    - Local
+                                    - Remote
+                                    - LocalAndRemote
+                                type: array
+                                minItems: 1
                               free:
                                 description: Free, when false, Service Instances of
                                   this Service Plan have a cost. The default is true.

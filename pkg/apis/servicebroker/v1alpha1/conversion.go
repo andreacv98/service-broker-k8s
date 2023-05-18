@@ -65,18 +65,35 @@ func (in DashboardClient) Convert() api.DashboardClient {
 	}
 }
 
+func (in PeeringPolicy) Convert() string {
+	switch in {
+	case PeeringPolicyLocal:
+		return "Local"
+	case PeeringPolicyRemote:
+		return "Remote"
+	default:
+		return "LocalAndRemote"
+	}
+}
+
 // Convert reformats a Kubernetes catalog object as an Open Service Broker object.
 func (in ServicePlan) Convert() api.ServicePlan {
 	out := api.ServicePlan{
 		ID:          in.ID,
 		Name:        in.Name,
 		Description: in.Description,
-		PeeringPolicy: in.PeeringPolicy,
 		Metadata:    in.Metadata,
 		Free:        in.Free,
 		Bindable:    in.Bindable,
 	}
-
+	if in.PeeringPolicies != nil {
+		// Empty string array
+		var peeringPolicies []string
+		for _, peeringPolicy := range in.PeeringPolicies {
+			peeringPolicies = append(peeringPolicies, peeringPolicy.Convert())
+		}
+		out.PeeringPolicies = peeringPolicies
+	}
 	if in.Schemas != nil {
 		schemas := in.Schemas.Convert()
 		out.Schemas = &schemas

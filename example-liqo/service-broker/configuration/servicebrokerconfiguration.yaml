@@ -25,7 +25,9 @@ spec:
       - id: superdb01-demo
         name: Demo
         description: "Demo plan for SuperDatabase. Just for testing purposes. No production use is suggested, as it's only a demo for academic purposes."
-        peeringPolicy: "Remote"
+        peeringPolicies:
+        - Remote
+        - Local
         schemas:
           serviceInstance:
             create:
