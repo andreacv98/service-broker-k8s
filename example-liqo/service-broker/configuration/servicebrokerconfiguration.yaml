@@ -87,6 +87,71 @@ spec:
                   binding-namespace:
                     description: "Namespace where the secret with the credentials will be created. It should be the same namespace where your application which will use the database is running."
                     type: string
+      - id: superdb01-production
+        name: Production
+        description: "Production plan for SuperDatabase. It differs from the demo plan into the hosting policies. In fact this plan cannot be hosted only locally."
+        peeringPolicies:
+        - Remote
+        - LocalAndRemote
+        schemas:
+          serviceInstance:
+            create:
+              parameters:
+                $schema: "http://json-schema.org/draft-07/schema#"
+                type: object
+                required:
+                  - secret-binding-name
+                properties:
+                  secret-binding-name:
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
+                    type: string
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
+            update:
+              parameters:
+                $schema: "http://json-schema.org/draft-07/schema#"
+                type: object
+                required:
+                  - secret-binding-name
+                properties:
+                  secret-binding-name:
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
+                    type: string
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
+          serviceBinding:
+            create:
+              parameters:
+                $schema: "http://json-schema.org/draft-07/schema#"
+                type: object
+                required:
+                  - user-name
+                  - secret-binding-name
+                  - binding-namespace
+                properties:
+                  root-password:
+                    description: "Administrator password"
+                    type: string
+                  user-name:
+                    description: "User name"
+                    type: string
+                  user-password:
+                    description: "User password"
+                    type: string
+                  database-name:
+                    description: "Database name"
+                    type: string
+                  port:
+                    description: "Port"
+                    type: integer
+                  secret-binding-name:
+                    description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
+                    type: string
+                    maxLength: 253
+                    pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
+                  binding-namespace:
+                    description: "Namespace where the secret with the credentials will be created. It should be the same namespace where your application which will use the database is running."
+                    type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst
   # metadata or parameters.  Parameters allow defaults to be specified if
@@ -175,6 +240,31 @@ spec:
   - name: SuperDB-Demo-binding
     service: SuperDatabase
     plan: Demo
+    registryScope: InstanceLocal
+    serviceInstance:
+      registry:
+      - name: secret-binding-name
+        value: '{{ parameter "/secret-binding-name" }}'
+      steps:
+      - name: database-cluster
+        templates:
+        - database-deployment
+    serviceBinding:
+      registry:
+      - name: port
+        value: '{{ parameter "/port" | default 3306 }}'
+      - name: host
+        value: '{{ printf "%s.%s" (registry "instance-id") (registry "namespace") }}'
+      - name: binding-namespace
+        value: '{{ parameter "/binding-namespace" }}'
+      - name: secret-binding-name
+        value: '{{ parameter "/secret-binding-name" }}'
+      templates:
+      - database-service
+      - database-secret-binding
+  - name: SuperDB-Production-binding
+    service: SuperDatabase
+    plan: Production
     registryScope: InstanceLocal
     serviceInstance:
       registry:
