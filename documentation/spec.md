@@ -1,4 +1,4 @@
-# Open Service Broker API (v2.13)
+# Open Service Broker API EXTENDED
 
 ## Table of Contents
   - [API Overview](#api-overview)
