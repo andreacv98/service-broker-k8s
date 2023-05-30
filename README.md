@@ -21,11 +21,7 @@ Ensure to have the following prerequisites:
 
 #### 1. Liqo cluster setup
 
-Setup the Liqo cluster following the official [documentation](https://docs.liqo.io/en/v0.7.0/installation/install.html). With a Kubernetes cluster you can easily setup a Liqo cluster with the following command:
-
-```bash
-liqoctl install kubeadm
-```
+Setup the Liqo cluster following the official [documentation](https://docs.liqo.io/en/v0.7.0/installation/install.html).
 
 #### 2. Catalog Server requirements
 
