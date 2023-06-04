@@ -11,8 +11,8 @@ spec:
   catalog:
     services:
     - id: superdb01
-      name: SuperDatabase
-      description: "SuperDatabase is a custom database for academic purposes. It's a MySQL database totally empty, just for testing purposes."
+      name: MySQLDatabase
+      description: "MySQLDatabase is a database for academic purposes. It's a MySQL database totally empty, just for testing purposes."
       tags:
       - database
       - mysql
@@ -23,10 +23,9 @@ spec:
       planUpdatable: false
       plans:
       - id: superdb01-demo
-        name: Demo
-        description: "Demo plan for SuperDatabase. Just for testing purposes. No production use is suggested, as it's only a demo for academic purposes."
+        name: Basic
+        description: "Basic plan for MySQL database. It's a MySQL database totally empty, just for testing purposes. You can bind to it referring to credentials as: MYSQL_HOST (host), MYSQL_USER (user), MYSQL_PASSWORD (password), MYSQL_DATABASE (database name)."
         peeringPolicies:
-        - Remote
         - Local
         schemas:
           serviceInstance:
@@ -35,9 +34,9 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - secret-binding-name
+                  - Database credentials secret name
                 properties:
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
@@ -47,9 +46,9 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - secret-binding-name
+                  - Database credentials secret name
                 properties:
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
@@ -60,36 +59,36 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - user-name
-                  - secret-binding-name
-                  - binding-namespace
+                  - User name
+                  - Database credentials secret name
+                  - Destination namespace
                 properties:
-                  root-password:
+                  Root password:
                     description: "Administrator password"
                     type: string
-                  user-name:
-                    description: "User name"
+                  User name:
+                    description: "Username for the user"
                     type: string
-                  user-password:
-                    description: "User password"
+                  User password:
+                    description: "Password for the user"
                     type: string
-                  database-name:
-                    description: "Database name"
+                  Database name:
+                    description: "name of the specific database that will be pre-created for the user"
                     type: string
-                  port:
-                    description: "Port"
+                  Port:
+                    description: "Port on which the database will be reachable"
                     type: integer
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
                     pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
-                  binding-namespace:
+                  Destination namespace:
                     description: "Namespace where the secret with the credentials will be created. It should be the same namespace where your application which will use the database is running."
                     type: string
       - id: superdb01-production
-        name: Production
-        description: "Production plan for SuperDatabase. It differs from the demo plan into the hosting policies. In fact this plan cannot be hosted only locally."
+        name: Premium
+        description: "Premium plan for SuperDatabase. It differs from the basic plan for the hosting policies. It's a MySQL database totally empty, just for testing purposes. You can bind to it referring to credentials as: MYSQL_HOST (host), MYSQL_USER (user), MYSQL_PASSWORD (password), MYSQL_DATABASE (database name)."
         peeringPolicies:
         - Remote
         - LocalAndRemote
@@ -100,9 +99,9 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - secret-binding-name
+                  - Database credentials secret name
                 properties:
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
@@ -112,9 +111,9 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - secret-binding-name
+                  - Database credentials secret name
                 properties:
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
@@ -125,32 +124,32 @@ spec:
                 $schema: "http://json-schema.org/draft-07/schema#"
                 type: object
                 required:
-                  - user-name
-                  - secret-binding-name
-                  - binding-namespace
+                  - User name
+                  - Database credentials secret name
+                  - Destination namespace
                 properties:
-                  root-password:
+                  Root password:
                     description: "Administrator password"
                     type: string
-                  user-name:
+                  User name:
                     description: "User name"
                     type: string
-                  user-password:
+                  User password:
                     description: "User password"
                     type: string
-                  database-name:
+                  Database name:
                     description: "Database name"
                     type: string
-                  port:
+                  Port:
                     description: "Port"
                     type: integer
-                  secret-binding-name:
+                  Database credentials secret name:
                     description: "Name of the secret that will contain the database credentials. Any of your applications will need to reference the same secret to access the database."
                     type: string
                     maxLength: 253
                     pattern: "^[a-z0-9][a-z0-9-.]*[a-z0-9]$"
-                  binding-namespace:
-                    description: "Namespace where the secret with the credentials will be created. It should be the same namespace where your application which will use the database is running."
+                  Destination namespace:
+                    description: "Name of the namespace where your application that will use the database is running. The secret with the credentials will be copied in this namespace."
                     type: string
   # Templates allow the end user to define anything they want to be created.
   # The parameters if specified define where the source is, either requesst
@@ -238,13 +237,13 @@ spec:
   # exactly what templates are created when a plan is instantiated or bound to.
   bindings:
   - name: SuperDB-Demo-binding
-    service: SuperDatabase
-    plan: Demo
+    service: MySQLDatabase
+    plan: Basic
     registryScope: InstanceLocal
     serviceInstance:
       registry:
       - name: secret-binding-name
-        value: '{{ parameter "/secret-binding-name" }}'
+        value: '{{ parameter "/Database credentials secret name" }}'
       steps:
       - name: database-cluster
         templates:
@@ -252,24 +251,24 @@ spec:
     serviceBinding:
       registry:
       - name: port
-        value: '{{ parameter "/port" | default 3306 }}'
+        value: '{{ parameter "/Port" | default 3306 }}'
       - name: host
         value: '{{ printf "%s.%s" (registry "instance-id") (registry "namespace") }}'
       - name: binding-namespace
-        value: '{{ parameter "/binding-namespace" }}'
+        value: '{{ parameter "/Destination namespace" }}'
       - name: secret-binding-name
-        value: '{{ parameter "/secret-binding-name" }}'
+        value: '{{ parameter "/Database credentials secret name" }}'
       templates:
       - database-service
       - database-secret-binding
   - name: SuperDB-Production-binding
-    service: SuperDatabase
-    plan: Production
+    service: MySQLDatabase
+    plan: Premium
     registryScope: InstanceLocal
     serviceInstance:
       registry:
       - name: secret-binding-name
-        value: '{{ parameter "/secret-binding-name" }}'
+        value: '{{ parameter "/Database credentials secret name" }}'
       steps:
       - name: database-cluster
         templates:
@@ -277,13 +276,13 @@ spec:
     serviceBinding:
       registry:
       - name: port
-        value: '{{ parameter "/port" | default 3306 }}'
+        value: '{{ parameter "/Port" | default 3306 }}'
       - name: host
         value: '{{ printf "%s.%s" (registry "instance-id") (registry "namespace") }}'
       - name: binding-namespace
-        value: '{{ parameter "/binding-namespace" }}'
+        value: '{{ parameter "/Destination namespace" }}'
       - name: secret-binding-name
-        value: '{{ parameter "/secret-binding-name" }}'
+        value: '{{ parameter "/Database credentials secret name" }}'
       templates:
       - database-service
       - database-secret-binding
